@@ -1,0 +1,19 @@
+# Python virtual environment
+venv/
+.venv/
+
+# Environment variables
+.env
+
+# Google API secrets
+token.json
+client_secrets.json
+
+# Temporary files
+temp_*.mp3
+temp_*.mp4
+final_videos/
+
+# OS/IDE files
+.DS_Store
+__pycache__/
