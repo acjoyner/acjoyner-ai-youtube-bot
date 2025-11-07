@@ -17,3 +17,4 @@ final_videos/
 # OS/IDE files
 .DS_Store
 __pycache__/
+*.json
