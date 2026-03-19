@@ -317,6 +317,7 @@ def add_workout():
     section_rest = int(request.form.get('section_rest', 60))
     rounds = int(request.form.get('rounds', 1))
     round_rest = int(request.form.get('round_rest', 30))
+    is_short = request.form.get('is_short') == '1'
 
     if not title:
         return redirect(url_for('index'))
@@ -339,7 +340,8 @@ def add_workout():
         "rest_duration": rest_dur,
         "section_rest": section_rest,
         "rounds": rounds,
-        "round_rest": round_rest
+        "round_rest": round_rest,
+        "is_short": is_short
     }
 
     conn = get_db()
@@ -371,7 +373,7 @@ def _run_build_workout(record_id: str, plan: dict):
         conn.commit()
         conn.close()
 
-        build_workout_video(plan, output_path, record_id=record_id)
+        build_workout_video(plan, output_path, record_id=record_id, is_short=plan.get('is_short', False))
 
         conn = get_db()
         conn.execute(

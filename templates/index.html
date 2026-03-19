@@ -118,6 +118,9 @@
                 <label style="font-size:0.85em;color:#555;">Rounds: <input type="number" name="rounds" value="1" min="1" max="5" style="width:55px;"></label>
                 <label style="font-size:0.85em;color:#555;">Round Break (s): <input type="number" name="round_rest" value="30" style="width:60px;"></label>
                 <label style="font-size:0.85em;color:#555;">Section Break (s): <input type="number" name="section_rest" value="60" style="width:60px;"></label>
+                <label style="font-size:0.85em;color:#555;display:flex;align-items:center;gap:0.3em;">
+                    <input type="checkbox" name="is_short" value="1"> Short (9:16)
+                </label>
                 <button type="submit" class="btn btn-primary">Add Workout</button>
             </div>
         </form>
@@ -244,6 +247,9 @@
                             <a href="/download/{{ v['record_id'] }}" class="btn btn-blue btn-sm">Download Video</a>
                         {% endif %}
                         <a href="/update_status/{{ v['record_id'] }}/8_Published" class="btn btn-green btn-sm">Mark Published</a>
+
+                    {% elif s == '2_Script_Pending' or s == '4_Prompts_Pending' %}
+                        <a href="/update_status/{{ v['record_id'] }}/1_Idea_Review" class="btn btn-red btn-sm">Reset</a>
 
                     {% elif s.startswith('Failed') %}
                         <a href="/update_status/{{ v['record_id'] }}/1_Idea_Review" class="btn btn-red btn-sm">Reset</a>

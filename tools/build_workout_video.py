@@ -46,7 +46,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 PEXELS_KEY = os.getenv("PIXEL_API")
-W, H = 1920, 1080
+W, H = 1920, 1080       # landscape (regular)
+W_SHORT, H_SHORT = 1080, 1920  # vertical (Shorts/Reels/TikTok)
 FPS = 30
 
 
@@ -395,7 +396,7 @@ def add_background_music(video, music_path: str, volume: float = 0.12):
 
 # --- Main builder ---
 
-def build_workout_video(plan: dict, output_path: str, record_id: str = None):
+def build_workout_video(plan: dict, output_path: str, record_id: str = None, is_short: bool = False):
     """
     Build the full workout video from a plan dict.
     Saves final MP4 to output_path.
@@ -408,7 +409,14 @@ def build_workout_video(plan: dict, output_path: str, record_id: str = None):
     global_rounds = plan.get("rounds", 1)
     round_rest = plan.get("round_rest", 30)
 
-    tmp_dir = Path(".tmp") / f"workout_{Path(output_path).stem}"
+    # Set dimensions based on format
+    global W, H
+    if is_short:
+        W, H = W_SHORT, H_SHORT
+    else:
+        W, H = 1920, 1080
+
+    tmp_dir = Path(".tmp") / f"workout_{record_id or Path(output_path).stem}"
     tmp_dir.mkdir(parents=True, exist_ok=True)
     downloads = tmp_dir / "downloads"
     downloads.mkdir(exist_ok=True)
