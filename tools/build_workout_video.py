@@ -120,12 +120,33 @@ def text_image(text: str, font_size: int, color: tuple, bg_color=None,
 
 # --- Pexels video fetcher ---
 
+CLIPS_DIR = Path("clips/exercises")
+
+
 def fetch_exercise_clip(exercise: str, dest_dir: Path) -> Path:
-    """Download a Pexels video for the given exercise. Returns local path."""
+    """
+    Return a video clip for the given exercise.
+    Priority:
+      1. clips/exercises/<safe_name>.mp4  — user-provided cartoon clips
+      2. .tmp/.../downloads/<safe_name>.mp4 — cached Pexels download
+      3. Pexels API — download and cache
+    """
     safe = exercise.lower().replace(" ", "_").replace("/", "_")
+
+    # 1. User-provided cartoon clip
+    local = CLIPS_DIR / f"{safe}.mp4"
+    if local.exists():
+        print(f"  Using local clip: {local}")
+        return local
+
+    # 2. Cached Pexels clip
     dest = dest_dir / f"{safe}.mp4"
     if dest.exists():
         return dest
+
+    # 3. Download from Pexels
+    if not PEXELS_KEY:
+        raise RuntimeError(f"No local clip found for '{exercise}' and PIXEL_API not set.")
 
     headers = {"Authorization": PEXELS_KEY}
     params = {"query": f"{exercise} dumbbell workout exercise", "per_page": 5, "size": "medium"}
@@ -134,21 +155,19 @@ def fetch_exercise_clip(exercise: str, dest_dir: Path) -> Path:
     data = r.json()
 
     if not data.get("videos"):
-        # Fallback: broader search
         params["query"] = f"{exercise} workout"
         r = requests.get("https://api.pexels.com/videos/search", headers=headers, params=params, timeout=15)
         r.raise_for_status()
         data = r.json()
 
     if not data.get("videos"):
-        raise RuntimeError(f"No Pexels video found for: {exercise}")
+        raise RuntimeError(f"No clip found for: {exercise}. Add one to clips/exercises/{safe}.mp4")
 
-    # Pick best resolution ≤ 1920px wide
     video = data["videos"][0]
     files = sorted(video["video_files"], key=lambda x: x.get("width", 0), reverse=True)
     url = next((f["link"] for f in files if f.get("width", 0) <= 1920), files[0]["link"])
 
-    print(f"  Downloading: {exercise}")
+    print(f"  Downloading from Pexels: {exercise}")
     with requests.get(url, stream=True, timeout=60) as resp:
         resp.raise_for_status()
         with open(dest, "wb") as f:
@@ -485,9 +504,18 @@ def build_workout_video(plan: dict, output_path: str, record_id: str = None, is_
     print("\nBuilding outro...")
     all_clips.append(make_intro("Great Work! Subscribe for More!"))
 
+    # Normalise all clips to same size and fps before concatenating
+    print("\nNormalising clips...")
+    normed = []
+    for clip in all_clips:
+        c = clip.resized((W, H))
+        if abs(c.fps - FPS) > 0.1:
+            c = c.with_fps(FPS)
+        normed.append(c)
+
     # Concatenate all clips
-    print("\nConcatenating clips...")
-    final = concatenate_videoclips(all_clips, method="compose")
+    print("Concatenating clips...")
+    final = concatenate_videoclips(normed, method="compose")
 
     # Add background music
     music_path = fetch_music(tmp_dir)

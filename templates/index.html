@@ -193,6 +193,7 @@
 
                     {% if s == '1_Idea_Review' %}
                         {% if v['Video_Type'] == 'workout' %}
+                            <a href="/exercise_prompts/{{ v['record_id'] }}" class="btn btn-gray btn-sm">Get Image Prompts</a>
                             <a href="/build_workout/{{ v['record_id'] }}" class="btn btn-blue btn-sm">Build Video</a>
                         {% elif v['Source_URL'] %}
                             <a href="/generate_script/{{ v['record_id'] }}" class="btn btn-blue btn-sm">Generate Script</a>

@@ -393,6 +393,28 @@ def _run_build_workout(record_id: str, plan: dict):
         conn.close()
 
 
+@app.route('/exercise_prompts/<record_id>')
+def exercise_prompts(record_id):
+    conn = get_db()
+    video = conn.execute(
+        "SELECT * FROM Videos WHERE record_id = ?", (record_id,)
+    ).fetchone()
+    conn.close()
+
+    if not video or not video['Workout_Plan']:
+        return "No workout plan found", 400
+
+    plan = json.loads(video['Workout_Plan'])
+    exercises = []
+    for section in plan.get('sections', []):
+        exercises.extend(section.get('exercises', []))
+
+    from tools.generate_exercise_prompts import generate_exercise_prompts
+    prompts = generate_exercise_prompts(exercises)
+    return render_template('view.html', title='Exercise Image Prompts', content=prompts,
+                           record_id=record_id, field='exercise_prompts')
+
+
 @app.route('/build_workout/<record_id>')
 def build_workout(record_id):
     import json
