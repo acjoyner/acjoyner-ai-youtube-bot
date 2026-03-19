@@ -232,6 +232,8 @@ def add_workout():
     work_dur = int(request.form.get('work_duration', 40))
     rest_dur = int(request.form.get('rest_duration', 20))
     section_rest = int(request.form.get('section_rest', 60))
+    rounds = int(request.form.get('rounds', 1))
+    round_rest = int(request.form.get('round_rest', 30))
 
     if not title:
         return redirect(url_for('index'))
@@ -252,7 +254,9 @@ def add_workout():
         "sections": sections,
         "work_duration": work_dur,
         "rest_duration": rest_dur,
-        "section_rest": section_rest
+        "section_rest": section_rest,
+        "rounds": rounds,
+        "round_rest": round_rest
     }
 
     conn = get_db()

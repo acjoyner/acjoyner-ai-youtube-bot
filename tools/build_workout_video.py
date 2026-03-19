@@ -275,6 +275,43 @@ def make_section_break(section_name: str, duration: int, tmp_dir: Path) -> Compo
     return composite.set_audio(full_audio)
 
 
+def make_round_break(round_num: int, total_rounds: int, duration: int, tmp_dir: Path) -> CompositeVideoClip:
+    """Short break between rounds within a section."""
+    clips = []
+    for sec in range(duration, 0, -1):
+        t_start = duration - sec
+        bg = np.zeros((H, W, 3), dtype=np.uint8)
+        bg[:] = (20, 20, 20)
+        bg_clip = ImageClip(bg).set_start(t_start).set_duration(1)
+
+        done_arr = text_image(f"Round {round_num} Complete!", 90, (255, 215, 0),
+                              position=((W - 800) // 2, int(H * 0.2)))
+        done_clip = ImageClip(done_arr).set_start(t_start).set_duration(1)
+
+        next_arr = text_image(f"Round {round_num + 1} of {total_rounds}", 65, (255, 255, 255),
+                              position=((W - 600) // 2, int(H * 0.42)))
+        next_clip = ImageClip(next_arr).set_start(t_start).set_duration(1)
+
+        in_arr = text_image(f"starting in {sec}s", 48, (160, 160, 160),
+                            position=((W - 500) // 2, int(H * 0.56)))
+        in_clip = ImageClip(in_arr).set_start(t_start).set_duration(1)
+
+        count_arr = text_image(str(sec), 80, (255, 255, 255), position="bottom")
+        count_clip = ImageClip(count_arr).set_start(t_start).set_duration(1)
+
+        clips.extend([bg_clip, done_clip, next_clip, in_clip, count_clip])
+
+    vo_path = str(tmp_dir / f"vo_round_{round_num}_break.mp3")
+    make_voiceover(f"Round {round_num} complete. Get ready for round {round_num + 1}.", vo_path)
+    audio = AudioFileClip(vo_path) if os.path.exists(vo_path) else silence(duration)
+    pad = silence(max(0, duration - audio.duration))
+    from moviepy.editor import concatenate_audioclips
+    full_audio = concatenate_audioclips([audio, pad]).subclip(0, duration)
+
+    composite = CompositeVideoClip(clips, size=(W, H)).set_duration(duration)
+    return composite.set_audio(full_audio)
+
+
 def make_intro(title: str, duration: int = 5) -> CompositeVideoClip:
     """Simple 5-second intro card."""
     bg = np.zeros((H, W, 3), dtype=np.uint8)
@@ -342,6 +379,8 @@ def build_workout_video(plan: dict, output_path: str):
     work_dur = plan.get("work_duration", 40)
     rest_dur = plan.get("rest_duration", 20)
     section_rest = plan.get("section_rest", 60)
+    global_rounds = plan.get("rounds", 1)
+    round_rest = plan.get("round_rest", 30)
 
     tmp_dir = Path(".tmp") / f"workout_{Path(output_path).stem}"
     tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -357,33 +396,52 @@ def build_workout_video(plan: dict, output_path: str):
     for s_idx, section in enumerate(sections):
         section_name = section["name"]
         exercises = section["exercises"]
+        rounds = section.get("rounds", global_rounds)
 
-        print(f"\n--- Section: {section_name} ---")
+        print(f"\n--- Section: {section_name} ({rounds} round{'s' if rounds > 1 else ''}) ---")
 
-        for e_idx, exercise in enumerate(exercises):
-            print(f"  [{e_idx + 1}/{len(exercises)}] {exercise}")
+        is_last_section = (s_idx == len(sections) - 1)
 
-            # Fetch stock video
-            video_path = fetch_exercise_clip(exercise, downloads)
+        for round_num in range(1, rounds + 1):
+            if rounds > 1:
+                print(f"  Round {round_num}/{rounds}")
 
-            # Work segment
-            work_clip = make_exercise_segment(exercise, video_path, work_dur, tmp_dir)
-            all_clips.append(work_clip)
+            is_last_round = (round_num == rounds)
 
-            # Rest segment (skip after last exercise in last section)
-            is_last = (s_idx == len(sections) - 1) and (e_idx == len(exercises) - 1)
-            if not is_last:
-                if e_idx < len(exercises) - 1:
-                    next_ex = exercises[e_idx + 1]
-                elif s_idx < len(sections) - 1:
-                    next_ex = sections[s_idx + 1]["exercises"][0]
-                else:
-                    next_ex = "Done!"
-                rest_clip = make_rest_segment(next_ex, rest_dur, tmp_dir)
-                all_clips.append(rest_clip)
+            for e_idx, exercise in enumerate(exercises):
+                print(f"    [{e_idx + 1}/{len(exercises)}] {exercise}")
+
+                # Fetch stock video (cached after first download)
+                video_path = fetch_exercise_clip(exercise, downloads)
+
+                # Work segment
+                work_clip = make_exercise_segment(exercise, video_path, work_dur, tmp_dir)
+                all_clips.append(work_clip)
+
+                # Determine what comes next for the rest screen
+                is_last_exercise = (e_idx == len(exercises) - 1)
+                is_very_last = is_last_section and is_last_round and is_last_exercise
+
+                if not is_very_last:
+                    if not is_last_exercise:
+                        next_ex = exercises[e_idx + 1]
+                    elif not is_last_round:
+                        next_ex = f"Round {round_num + 1} — {exercises[0]}"
+                    elif not is_last_section:
+                        next_ex = sections[s_idx + 1]["exercises"][0]
+                    else:
+                        next_ex = "Done!"
+                    rest_clip = make_rest_segment(next_ex, rest_dur, tmp_dir)
+                    all_clips.append(rest_clip)
+
+            # Round break (between rounds within a section, not after last round)
+            if not is_last_round:
+                print(f"  Round break → Round {round_num + 1}")
+                round_clip = make_round_break(round_num, rounds, round_rest, tmp_dir)
+                all_clips.append(round_clip)
 
         # Section break (between sections, not after last)
-        if s_idx < len(sections) - 1:
+        if not is_last_section:
             next_section = sections[s_idx + 1]["name"]
             print(f"  Section break → {next_section}")
             break_clip = make_section_break(next_section, section_rest, tmp_dir)
@@ -425,14 +483,24 @@ if __name__ == "__main__":
         print("Usage: python build_workout_video.py workout.json output.mp4")
         print("\nExample workout.json:")
         example = {
-            "title": "Full Body Dumbbell Workout",
-            "sections": [
-                {"name": "Upper Body", "exercises": ["Bicep Curls", "Shoulder Press", "Chest Fly", "Tricep Extensions"]},
-                {"name": "Lower Body", "exercises": ["Squats", "Lunges", "Romanian Deadlift", "Calf Raises"]}
-            ],
+            "title": "30 Min Full Body Dumbbell Workout",
+            "rounds": 2,
+            "round_rest": 30,
             "work_duration": 40,
             "rest_duration": 20,
-            "section_rest": 60
+            "section_rest": 60,
+            "sections": [
+                {
+                    "name": "Upper Body",
+                    "exercises": ["Bicep Curls", "Shoulder Press", "Chest Fly", "Tricep Extensions",
+                                  "Bent Over Rows", "Lateral Raises", "Arnold Press"]
+                },
+                {
+                    "name": "Lower Body",
+                    "exercises": ["Goblet Squats", "Reverse Lunges", "Romanian Deadlift",
+                                  "Glute Bridges", "Calf Raises", "Curtsy Lunges", "Hip Thrusts"]
+                }
+            ]
         }
         print(json.dumps(example, indent=2))
         sys.exit(1)
