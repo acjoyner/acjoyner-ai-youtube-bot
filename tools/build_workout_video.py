@@ -36,12 +36,11 @@ import requests
 import numpy as np
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
-from moviepy.editor import (
+from moviepy import (
     VideoFileClip, ImageClip, CompositeVideoClip,
     ColorClip, concatenate_videoclips, AudioFileClip,
-    CompositeAudioClip
+    CompositeAudioClip, AudioArrayClip, concatenate_audioclips
 )
-from moviepy.audio.AudioClip import AudioArrayClip
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -163,7 +162,6 @@ def make_exercise_segment(exercise: str, video_path: Path,
     # Loop/trim to exact duration
     if base.duration < duration:
         loops = int(duration / base.duration) + 1
-        from moviepy.editor import concatenate_videoclips
         base = concatenate_videoclips([base] * loops)
     base = base.subclip(0, duration).resize((W, H))
 
@@ -195,7 +193,7 @@ def make_exercise_segment(exercise: str, video_path: Path,
     make_voiceover(f"Starting {exercise}", vo_path)
     audio = AudioFileClip(vo_path) if os.path.exists(vo_path) else silence(duration)
     pad = silence(max(0, duration - audio.duration))
-    from moviepy.editor import concatenate_audioclips
+
     full_audio = concatenate_audioclips([audio, pad]).subclip(0, duration)
 
     composite = CompositeVideoClip([base, dark, name_clip, work_clip] + countdown_clips)
@@ -234,7 +232,7 @@ def make_rest_segment(next_exercise: str, duration: int, tmp_dir: Path) -> Image
     make_voiceover(f"Rest. Next up, {next_exercise}", vo_path)
     audio = AudioFileClip(vo_path) if os.path.exists(vo_path) else silence(duration)
     pad = silence(max(0, duration - audio.duration))
-    from moviepy.editor import concatenate_audioclips
+
     full_audio = concatenate_audioclips([audio, pad]).subclip(0, duration)
 
     composite = CompositeVideoClip(clips, size=(W, H)).set_duration(duration)
@@ -268,7 +266,7 @@ def make_section_break(section_name: str, duration: int, tmp_dir: Path) -> Compo
     make_voiceover(f"Great work! Get ready for {section_name}.", vo_path)
     audio = AudioFileClip(vo_path) if os.path.exists(vo_path) else silence(duration)
     pad = silence(max(0, duration - audio.duration))
-    from moviepy.editor import concatenate_audioclips
+
     full_audio = concatenate_audioclips([audio, pad]).subclip(0, duration)
 
     composite = CompositeVideoClip(clips, size=(W, H)).set_duration(duration)
@@ -305,7 +303,7 @@ def make_round_break(round_num: int, total_rounds: int, duration: int, tmp_dir: 
     make_voiceover(f"Round {round_num} complete. Get ready for round {round_num + 1}.", vo_path)
     audio = AudioFileClip(vo_path) if os.path.exists(vo_path) else silence(duration)
     pad = silence(max(0, duration - audio.duration))
-    from moviepy.editor import concatenate_audioclips
+
     full_audio = concatenate_audioclips([audio, pad]).subclip(0, duration)
 
     composite = CompositeVideoClip(clips, size=(W, H)).set_duration(duration)
@@ -357,7 +355,7 @@ def add_background_music(video, music_path: str, volume: float = 0.12):
     music = AudioFileClip(music_path)
     # Loop music to match video length
     loops = int(video.duration / music.duration) + 2
-    from moviepy.editor import concatenate_audioclips
+
     looped = concatenate_audioclips([music] * loops).subclip(0, video.duration)
     looped = looped.volumex(volume)
 

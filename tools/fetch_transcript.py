@@ -26,8 +26,9 @@ def extract_video_id(url: str) -> str:
 def fetch_transcript(youtube_url: str) -> str:
     """Fetch transcript from a YouTube video URL. Returns plain text."""
     video_id = extract_video_id(youtube_url)
-    transcript = YouTubeTranscriptApi.get_transcript(video_id)
-    text = " ".join(entry["text"] for entry in transcript)
+    api = YouTubeTranscriptApi()
+    transcript = api.fetch(video_id)
+    text = " ".join(entry.text for entry in transcript)
     # Clean up line breaks and extra spaces
     text = re.sub(r"\s+", " ", text).strip()
     return text

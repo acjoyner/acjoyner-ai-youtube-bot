@@ -3,7 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <title>Video Pipeline</title>
-    <meta http-equiv="refresh" content="15"> <!-- auto-refresh while jobs run -->
     <style>
         * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background: #f0f2f5; color: #1a1a1a; }
@@ -206,5 +205,21 @@
     </div>
 
 </div>
+<script>
+    // Auto-refresh every 10s only when no input is focused (so forms don't get cleared)
+    let refreshTimer;
+    function scheduleRefresh() {
+        clearTimeout(refreshTimer);
+        refreshTimer = setTimeout(() => {
+            const active = document.activeElement;
+            const typing = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
+            if (!typing) location.reload();
+            else scheduleRefresh(); // re-check in 10s if still typing
+        }, 10000);
+    }
+    // Only auto-refresh if there are pending jobs on the page
+    const hasPending = document.body.innerText.includes('Generating') || document.body.innerText.includes('Pending');
+    if (hasPending) scheduleRefresh();
+</script>
 </body>
 </html>
