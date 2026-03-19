@@ -198,7 +198,7 @@
                     {% if s == '1_Idea_Review' %}
                         {% if v['Video_Type'] == 'workout' %}
                             <a href="/exercise_prompts/{{ v['record_id'] }}" class="btn btn-gray btn-sm">Get Image Prompts</a>
-                            <a href="/build_workout/{{ v['record_id'] }}" class="btn btn-blue btn-sm" onclick="showLoading(this)">Build Video</a>
+                            <button class="btn btn-blue btn-sm" onclick="triggerBuild('{{ v['record_id'] }}', this)">Build Video</button>
                             <div class="spinner" id="spin-{{ v['record_id'] }}"></div>
                             <div class="loading-msg" id="msg-{{ v['record_id'] }}">Starting build — downloading clips & generating audio...</div>
                         {% elif v['Source_URL'] %}
@@ -274,15 +274,33 @@
 
 </div>
 <script>
-    function showLoading(btn) {
-        const card = btn.closest('.card');
-        const recordId = btn.href.split('/').pop();
+    function triggerBuild(recordId, btn) {
+        // Show spinner immediately — no page navigation
         const spinner = document.getElementById('spin-' + recordId);
         const msg = document.getElementById('msg-' + recordId);
-        if (spinner) { spinner.style.display = 'inline-block'; }
-        if (msg) { msg.style.display = 'block'; }
+        spinner.style.display = 'inline-block';
+        msg.style.display = 'block';
+        btn.disabled = true;
         btn.style.opacity = '0.5';
-        btn.style.pointerEvents = 'none';
+
+        // Kick off build in background
+        fetch('/build_workout/' + recordId)
+            .then(() => {
+                // Poll every 2s until status changes from 1_Idea_Review
+                const poll = setInterval(() => {
+                    fetch('/api/progress/' + recordId)
+                        .then(r => r.json())
+                        .then(data => {
+                            if (data.pct > 0) {
+                                clearInterval(poll);
+                                location.reload();
+                            }
+                        });
+                }, 2000);
+                // Reload after 30s max regardless
+                setTimeout(() => location.reload(), 30000);
+            })
+            .catch(() => location.reload());
     }
 
     // Poll progress for any building video cards
