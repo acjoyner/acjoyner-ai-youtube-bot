@@ -170,7 +170,7 @@ def make_exercise_segment(exercise: str, video_path: Path,
 
     # Exercise name (top center)
     name_arr = text_image(exercise.upper(), 72, (255, 255, 255), position="top")
-    name_clip = ImageClip(name_arr, ismask=False).with_duration(duration)
+    name_clip = ImageClip(name_arr).with_duration(duration)
 
     # WORK badge (top left)
     work_arr = text_image("WORK", 40, (255, 255, 255),
