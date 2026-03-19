@@ -408,7 +408,7 @@ def add_background_music(video, music_path: str, volume: float = 0.12):
     # Loop music to match video length
     loops = int((video.duration or 0) / (music.duration or 1)) + 2
 
-    looped = concatenate_audioclips([music] * loops).subclipped(0, video.duration)
+    looped = concatenate_audioclips([music] * loops).subclipped(0, video.duration or 1)
     looped = looped.with_volume_scaled(volume)
 
     if video.audio:
@@ -512,9 +512,7 @@ def build_workout_video(plan: dict, output_path: str, record_id: str = None, is_
     print("\nNormalising clips...")
     normed = []
     for clip in all_clips:
-        c = clip.resized((W, H))
-        if abs(c.fps - FPS) > 0.1:
-            c = c.with_fps(FPS)
+        c = clip.resized((W, H)).with_fps(FPS)
         normed.append(c)
 
     # Concatenate all clips
