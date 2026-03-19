@@ -49,6 +49,34 @@ PEXELS_KEY = os.getenv("PIXEL_API")
 W, H = 1920, 1080
 FPS = 30
 
+
+# --- Progress logger ---
+
+class FileProgressLogger:
+    """Writes render progress to a JSON file so the dashboard can poll it."""
+
+    def __init__(self, progress_file: str):
+        self.progress_file = progress_file
+        self._last_pct = -1
+
+    def callback(self, **kw):
+        bars = kw.get("bars", {})
+        for bar in bars.values():
+            total = bar.get("total") or 0
+            index = bar.get("index") or 0
+            if total > 0:
+                pct = int(index / total * 100)
+                if pct != self._last_pct:
+                    self._last_pct = pct
+                    try:
+                        with open(self.progress_file, "w") as f:
+                            json.dump({"pct": pct, "index": index, "total": total}, f)
+                    except Exception:
+                        pass
+
+    def log(self, *args, **kw):
+        pass  # suppress text output, tqdm handles it
+
 # --- Font helpers ---
 
 def get_font(size: int):
@@ -367,7 +395,7 @@ def add_background_music(video, music_path: str, volume: float = 0.12):
 
 # --- Main builder ---
 
-def build_workout_video(plan: dict, output_path: str):
+def build_workout_video(plan: dict, output_path: str, record_id: str = None):
     """
     Build the full workout video from a plan dict.
     Saves final MP4 to output_path.
@@ -463,6 +491,12 @@ def build_workout_video(plan: dict, output_path: str):
 
     # Export
     print(f"\nExporting to {output_path}...")
+    progress_file = str(tmp_dir / "progress.json")
+    if record_id:
+        logger = FileProgressLogger(progress_file)
+    else:
+        logger = "bar"
+
     final.write_videofile(
         output_path,
         fps=FPS,
@@ -470,7 +504,7 @@ def build_workout_video(plan: dict, output_path: str):
         audio_codec="aac",
         threads=4,
         preset="fast",
-        logger="bar"
+        logger=logger
     )
     print(f"\nDone: {output_path}")
     return output_path

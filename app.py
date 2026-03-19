@@ -1,5 +1,6 @@
 # app.py
 import os
+import json
 import sqlite3
 import shortuuid
 import threading
@@ -370,7 +371,7 @@ def _run_build_workout(record_id: str, plan: dict):
         conn.commit()
         conn.close()
 
-        build_workout_video(plan, output_path)
+        build_workout_video(plan, output_path, record_id=record_id)
 
         conn = get_db()
         conn.execute(
@@ -408,6 +409,16 @@ def build_workout(record_id):
     thread.start()
 
     return redirect(url_for('index'))
+
+
+@app.route('/api/progress/<record_id>')
+def render_progress(record_id):
+    import glob
+    matches = glob.glob(f".tmp/workout_{record_id}/progress.json")
+    if matches:
+        with open(matches[0]) as f:
+            return jsonify(json.load(f))
+    return jsonify({"pct": 0})
 
 
 @app.route('/download/<record_id>')

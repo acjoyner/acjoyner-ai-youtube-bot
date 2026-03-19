@@ -65,6 +65,11 @@
         .sf { background: #fee2e2; color: #991b1b; }   /* Failed */
 
         .empty { text-align: center; padding: 3em; color: #9ca3af; font-size: 0.95em; }
+
+        .progress-wrap { margin-top: 0.6em; }
+        .progress-bar-bg { background: #e5e7eb; border-radius: 999px; height: 10px; overflow: hidden; }
+        .progress-bar-fill { background: #4f46e5; height: 100%; border-radius: 999px; transition: width 1s ease; }
+        .progress-label { font-size: 0.75em; color: #6b7280; margin-top: 0.3em; }
     </style>
 </head>
 <body>
@@ -143,7 +148,11 @@
                 {% elif s == '3_Script_Review' %}
                     <span class="status-pill s3">Script Ready — Review</span>
                 {% elif s == '4_Prompts_Pending' %}
-                    <span class="status-pill s4">⏳ Generating Prompts...</span>
+                    <span class="status-pill s4">⏳ Building Video...</span>
+                    <div class="progress-wrap" id="wrap-{{ v['record_id'] }}">
+                        <div class="progress-bar-bg"><div class="progress-bar-fill" id="bar-{{ v['record_id'] }}" style="width:0%"></div></div>
+                        <div class="progress-label" id="label-{{ v['record_id'] }}">Starting...</div>
+                    </div>
                 {% elif s == '5_Prompts_Review' %}
                     <span class="status-pill s5">Prompts Ready — Review</span>
                 {% elif s == '6_In_Production' %}
@@ -252,7 +261,28 @@
 
 </div>
 <script>
-    // Auto-refresh every 10s only when no input is focused (so forms don't get cleared)
+    // Poll progress for any building video cards
+    const buildingCards = document.querySelectorAll('[id^="bar-"]');
+    buildingCards.forEach(bar => {
+        const recordId = bar.id.replace('bar-', '');
+        const label = document.getElementById('label-' + recordId);
+
+        function poll() {
+            fetch('/api/progress/' + recordId)
+                .then(r => r.json())
+                .then(data => {
+                    const pct = data.pct || 0;
+                    bar.style.width = pct + '%';
+                    label.textContent = pct + '% rendered';
+                    if (pct < 100) setTimeout(poll, 2000);
+                    else location.reload(); // refresh when done
+                })
+                .catch(() => setTimeout(poll, 5000));
+        }
+        poll();
+    });
+
+    // Auto-refresh every 10s only when no input is focused
     let refreshTimer;
     function scheduleRefresh() {
         clearTimeout(refreshTimer);
@@ -260,12 +290,11 @@
             const active = document.activeElement;
             const typing = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
             if (!typing) location.reload();
-            else scheduleRefresh(); // re-check in 10s if still typing
+            else scheduleRefresh();
         }, 10000);
     }
-    // Only auto-refresh if there are pending jobs on the page
     const hasPending = document.body.innerText.includes('Generating') || document.body.innerText.includes('Pending');
-    if (hasPending) scheduleRefresh();
+    if (hasPending && buildingCards.length === 0) scheduleRefresh();
 </script>
 </body>
 </html>
