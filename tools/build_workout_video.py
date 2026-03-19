@@ -65,14 +65,20 @@ try:
             self._last_pct = -1
             print(f"[FileProgressLogger] Initialized. Writing progress to: {progress_file}")
 
-        def bars_callback(self, bar, attr, value, old_value=None):
+        def bars_callback(self, bar, attr, value, _old_value=None):
+            # Log EVERY call — helps diagnose what moviepy actually sends
+            print(f"[FileProgressLogger] bars_callback → bar={bar!r} attr={attr!r} value={value!r}", flush=True)
+
+            # moviepy 2.x uses iter_bar(frame_index=array) so bar="frame_index", attr="index"
             if attr == "index":
-                total = (self.bars.get(bar) or {}).get("total") or 0
+                bar_info = self.bars.get(bar) or {}
+                total = bar_info.get("total") or 0
+                print(f"[FileProgressLogger]   bar_info={bar_info}  total={total}", flush=True)
                 if total > 0:
                     pct = int(value / total * 100)
                     if pct != self._last_pct:
                         self._last_pct = pct
-                        print(f"[FileProgressLogger] Render progress: {pct}% ({value}/{total})", flush=True)
+                        print(f"[FileProgressLogger] Writing {pct}% ({value}/{total}) to {self.progress_file}", flush=True)
                         try:
                             with open(self.progress_file, "w") as f:
                                 json.dump({"pct": pct, "index": value, "total": total}, f)
@@ -80,10 +86,7 @@ try:
                             print(f"[FileProgressLogger] ERROR writing progress file: {write_err}", flush=True)
 
         def callback(self, **kw):
-            # Called by older proglog versions — log for visibility
-            bars = kw.get("bars", {})
-            if bars:
-                print(f"[FileProgressLogger] callback bars={list(bars.keys())}", flush=True)
+            print(f"[FileProgressLogger] callback() kw={list(kw.keys())}", flush=True)
 
 except ImportError:
     print("[FileProgressLogger] WARNING: proglog not installed — no render progress tracking")

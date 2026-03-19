@@ -614,7 +614,7 @@ def render_progress(record_id):
         except Exception as e:
             log.warning(f"[{record_id[:8]}] /api/progress failed to read {path}: {e}")
     else:
-        log.debug(f"[{record_id[:8]}] /api/progress → no file yet at {path}")
+        log.info(f"[{record_id[:8]}] /api/progress → no progress.json yet at {path}")
     return jsonify({"pct": 0})
 
 
