@@ -163,19 +163,19 @@ def make_exercise_segment(exercise: str, video_path: Path,
     if base.duration < duration:
         loops = int(duration / base.duration) + 1
         base = concatenate_videoclips([base] * loops)
-    base = base.subclip(0, duration).resize((W, H))
+    base = base.subclipped(0, duration).resized((W, H))
 
     # Dark overlay for readability
-    dark = ColorClip((W, H), color=(0, 0, 0), duration=duration).set_opacity(0.45)
+    dark = ColorClip((W, H), color=(0, 0, 0), duration=duration).with_opacity(0.45)
 
     # Exercise name (top center)
     name_arr = text_image(exercise.upper(), 72, (255, 255, 255), position="top")
-    name_clip = ImageClip(name_arr, ismask=False).set_duration(duration)
+    name_clip = ImageClip(name_arr, ismask=False).with_duration(duration)
 
     # WORK badge (top left)
     work_arr = text_image("WORK", 40, (255, 255, 255),
                           bg_color=(220, 50, 50, 200), size=(160, 60), position="center")
-    work_clip = ImageClip(work_arr).set_duration(duration).set_position((40, 40))
+    work_clip = ImageClip(work_arr).with_duration(duration).with_position((40, 40))
 
     # Per-second countdown clips
     countdown_clips = []
@@ -185,7 +185,7 @@ def make_exercise_segment(exercise: str, video_path: Path,
         color = (255, 60, 60) if is_warn else (255, 255, 255)
         font_size = 160 if is_warn else 130
         arr = text_image(str(sec), font_size, color, position="bottom")
-        clip = ImageClip(arr).set_start(t_start).set_duration(1)
+        clip = ImageClip(arr).with_start(t_start).with_duration(1)
         countdown_clips.append(clip)
 
     # Voiceover: "Starting [exercise]"
@@ -194,10 +194,10 @@ def make_exercise_segment(exercise: str, video_path: Path,
     audio = AudioFileClip(vo_path) if os.path.exists(vo_path) else silence(duration)
     pad = silence(max(0, duration - audio.duration))
 
-    full_audio = concatenate_audioclips([audio, pad]).subclip(0, duration)
+    full_audio = concatenate_audioclips([audio, pad]).subclipped(0, duration)
 
     composite = CompositeVideoClip([base, dark, name_clip, work_clip] + countdown_clips)
-    return composite.set_audio(full_audio)
+    return composite.with_audio(full_audio)
 
 
 def make_rest_segment(next_exercise: str, duration: int, tmp_dir: Path) -> ImageClip:
@@ -208,22 +208,22 @@ def make_rest_segment(next_exercise: str, duration: int, tmp_dir: Path) -> Image
         # Background
         bg = np.zeros((H, W, 3), dtype=np.uint8)
         bg[:] = (15, 30, 15)
-        bg_clip = ImageClip(bg).set_start(t_start).set_duration(1)
+        bg_clip = ImageClip(bg).with_start(t_start).with_duration(1)
 
         # REST text
         rest_arr = text_image("REST", 160, (76, 200, 76), position=(
             (W - 400) // 2, int(H * 0.15)
         ))
-        rest_clip = ImageClip(rest_arr).set_start(t_start).set_duration(1)
+        rest_clip = ImageClip(rest_arr).with_start(t_start).with_duration(1)
 
         # Next exercise
         next_arr = text_image(f"Next: {next_exercise.upper()}", 52, (180, 180, 180),
                               position=((W - 900) // 2, int(H * 0.5)))
-        next_clip = ImageClip(next_arr).set_start(t_start).set_duration(1)
+        next_clip = ImageClip(next_arr).with_start(t_start).with_duration(1)
 
         # Countdown
         count_arr = text_image(str(sec), 100, (255, 255, 255), position="bottom")
-        count_clip = ImageClip(count_arr).set_start(t_start).set_duration(1)
+        count_clip = ImageClip(count_arr).with_start(t_start).with_duration(1)
 
         clips.extend([bg_clip, rest_clip, next_clip, count_clip])
 
@@ -233,10 +233,10 @@ def make_rest_segment(next_exercise: str, duration: int, tmp_dir: Path) -> Image
     audio = AudioFileClip(vo_path) if os.path.exists(vo_path) else silence(duration)
     pad = silence(max(0, duration - audio.duration))
 
-    full_audio = concatenate_audioclips([audio, pad]).subclip(0, duration)
+    full_audio = concatenate_audioclips([audio, pad]).subclipped(0, duration)
 
-    composite = CompositeVideoClip(clips, size=(W, H)).set_duration(duration)
-    return composite.set_audio(full_audio)
+    composite = CompositeVideoClip(clips, size=(W, H)).with_duration(duration)
+    return composite.with_audio(full_audio)
 
 
 def make_section_break(section_name: str, duration: int, tmp_dir: Path) -> CompositeVideoClip:
@@ -246,19 +246,19 @@ def make_section_break(section_name: str, duration: int, tmp_dir: Path) -> Compo
         t_start = duration - sec
         bg = np.zeros((H, W, 3), dtype=np.uint8)
         bg[:] = (10, 10, 30)
-        bg_clip = ImageClip(bg).set_start(t_start).set_duration(1)
+        bg_clip = ImageClip(bg).with_start(t_start).with_duration(1)
 
         title_arr = text_image("Great Work!", 100, (255, 215, 0),
                                position=((W - 700) // 2, int(H * 0.2)))
-        title_clip = ImageClip(title_arr).set_start(t_start).set_duration(1)
+        title_clip = ImageClip(title_arr).with_start(t_start).with_duration(1)
 
         next_arr = text_image(f"Starting {section_name.upper()}", 60, (255, 255, 255),
                               position=((W - 900) // 2, int(H * 0.42)))
-        next_clip = ImageClip(next_arr).set_start(t_start).set_duration(1)
+        next_clip = ImageClip(next_arr).with_start(t_start).with_duration(1)
 
         in_arr = text_image(f"in {sec} seconds", 50, (160, 160, 160),
                             position=((W - 600) // 2, int(H * 0.56)))
-        in_clip = ImageClip(in_arr).set_start(t_start).set_duration(1)
+        in_clip = ImageClip(in_arr).with_start(t_start).with_duration(1)
 
         clips.extend([bg_clip, title_clip, next_clip, in_clip])
 
@@ -267,10 +267,10 @@ def make_section_break(section_name: str, duration: int, tmp_dir: Path) -> Compo
     audio = AudioFileClip(vo_path) if os.path.exists(vo_path) else silence(duration)
     pad = silence(max(0, duration - audio.duration))
 
-    full_audio = concatenate_audioclips([audio, pad]).subclip(0, duration)
+    full_audio = concatenate_audioclips([audio, pad]).subclipped(0, duration)
 
-    composite = CompositeVideoClip(clips, size=(W, H)).set_duration(duration)
-    return composite.set_audio(full_audio)
+    composite = CompositeVideoClip(clips, size=(W, H)).with_duration(duration)
+    return composite.with_audio(full_audio)
 
 
 def make_round_break(round_num: int, total_rounds: int, duration: int, tmp_dir: Path) -> CompositeVideoClip:
@@ -280,22 +280,22 @@ def make_round_break(round_num: int, total_rounds: int, duration: int, tmp_dir: 
         t_start = duration - sec
         bg = np.zeros((H, W, 3), dtype=np.uint8)
         bg[:] = (20, 20, 20)
-        bg_clip = ImageClip(bg).set_start(t_start).set_duration(1)
+        bg_clip = ImageClip(bg).with_start(t_start).with_duration(1)
 
         done_arr = text_image(f"Round {round_num} Complete!", 90, (255, 215, 0),
                               position=((W - 800) // 2, int(H * 0.2)))
-        done_clip = ImageClip(done_arr).set_start(t_start).set_duration(1)
+        done_clip = ImageClip(done_arr).with_start(t_start).with_duration(1)
 
         next_arr = text_image(f"Round {round_num + 1} of {total_rounds}", 65, (255, 255, 255),
                               position=((W - 600) // 2, int(H * 0.42)))
-        next_clip = ImageClip(next_arr).set_start(t_start).set_duration(1)
+        next_clip = ImageClip(next_arr).with_start(t_start).with_duration(1)
 
         in_arr = text_image(f"starting in {sec}s", 48, (160, 160, 160),
                             position=((W - 500) // 2, int(H * 0.56)))
-        in_clip = ImageClip(in_arr).set_start(t_start).set_duration(1)
+        in_clip = ImageClip(in_arr).with_start(t_start).with_duration(1)
 
         count_arr = text_image(str(sec), 80, (255, 255, 255), position="bottom")
-        count_clip = ImageClip(count_arr).set_start(t_start).set_duration(1)
+        count_clip = ImageClip(count_arr).with_start(t_start).with_duration(1)
 
         clips.extend([bg_clip, done_clip, next_clip, in_clip, count_clip])
 
@@ -304,20 +304,20 @@ def make_round_break(round_num: int, total_rounds: int, duration: int, tmp_dir: 
     audio = AudioFileClip(vo_path) if os.path.exists(vo_path) else silence(duration)
     pad = silence(max(0, duration - audio.duration))
 
-    full_audio = concatenate_audioclips([audio, pad]).subclip(0, duration)
+    full_audio = concatenate_audioclips([audio, pad]).subclipped(0, duration)
 
-    composite = CompositeVideoClip(clips, size=(W, H)).set_duration(duration)
-    return composite.set_audio(full_audio)
+    composite = CompositeVideoClip(clips, size=(W, H)).with_duration(duration)
+    return composite.with_audio(full_audio)
 
 
 def make_intro(title: str, duration: int = 5) -> CompositeVideoClip:
     """Simple 5-second intro card."""
     bg = np.zeros((H, W, 3), dtype=np.uint8)
     bg[:] = (10, 10, 30)
-    bg_clip = ImageClip(bg).set_duration(duration)
+    bg_clip = ImageClip(bg).with_duration(duration)
     title_arr = text_image(title.upper(), 80, (255, 255, 255))
-    title_clip = ImageClip(title_arr).set_duration(duration)
-    return CompositeVideoClip([bg_clip, title_clip]).set_duration(duration)
+    title_clip = ImageClip(title_arr).with_duration(duration)
+    return CompositeVideoClip([bg_clip, title_clip]).with_duration(duration)
 
 
 # --- Music ---
@@ -356,13 +356,13 @@ def add_background_music(video, music_path: str, volume: float = 0.12):
     # Loop music to match video length
     loops = int(video.duration / music.duration) + 2
 
-    looped = concatenate_audioclips([music] * loops).subclip(0, video.duration)
-    looped = looped.volumex(volume)
+    looped = concatenate_audioclips([music] * loops).subclipped(0, video.duration)
+    looped = looped.with_volume_scaled(volume)
 
     if video.audio:
         mixed = CompositeAudioClip([video.audio, looped])
-        return video.set_audio(mixed)
-    return video.set_audio(looped)
+        return video.with_audio(mixed)
+    return video.with_audio(looped)
 
 
 # --- Main builder ---
