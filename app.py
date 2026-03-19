@@ -31,6 +31,25 @@ def get_db():
     return conn
 
 
+def migrate_db():
+    """Add new columns to Videos table without dropping existing data."""
+    conn = get_db()
+    new_columns = [
+        ('scene_data',       'TEXT'),
+        ('auto_prod_status', 'TEXT'),
+    ]
+    for col, col_type in new_columns:
+        try:
+            conn.execute(f"ALTER TABLE Videos ADD COLUMN {col} {col_type}")
+            conn.commit()
+        except Exception:
+            pass  # column already exists
+    conn.close()
+
+
+migrate_db()
+
+
 # ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------
@@ -301,6 +320,110 @@ def download_audio(record_id):
         as_attachment=True,
         download_name=f"{video['Idea']}_voiceover.mp3"
     )
+
+
+# ---------------------------------------------------------------------------
+# Auto-produce: DALL-E 3 images + fal.ai Kling clips + sync assembly
+# ---------------------------------------------------------------------------
+
+def _run_auto_produce(record_id: str, script: str):
+    """
+    Background thread: full zero-manual Finance video pipeline.
+
+    Phases tracked in auto_prod_status:
+      pending       → generating DALL-E 3 images
+      images_done   → generating Kling video clips + audio
+      clips_done    → assembling final video
+      failed        → error (see Status column for detail)
+    """
+    try:
+        from tools.automated_asset_generator import generate_assets
+        from tools.sync_assembler import assemble_finance_video
+        import json
+
+        # Kick off — status already set by the route
+        scenes = generate_assets(record_id, script)
+
+        # Assemble
+        conn = get_db()
+        conn.execute(
+            "UPDATE Videos SET auto_prod_status = ? WHERE record_id = ?",
+            ('assembling', record_id)
+        )
+        conn.commit()
+        conn.close()
+
+        os.makedirs('.tmp', exist_ok=True)
+        output_path = f".tmp/finance_{record_id}.mp4"
+        assemble_finance_video(
+            scenes,
+            output_path,
+            tmp_dir=f".tmp/finance_assembly_{record_id}",
+        )
+
+        conn = get_db()
+        conn.execute(
+            "UPDATE Videos SET Video_File_URL = ?, Status = ?, auto_prod_status = ? WHERE record_id = ?",
+            (output_path, '7_Final_Review', 'done', record_id)
+        )
+        conn.commit()
+        conn.close()
+
+    except Exception as e:
+        conn = get_db()
+        conn.execute(
+            "UPDATE Videos SET Status = ?, auto_prod_status = ? WHERE record_id = ?",
+            (f'Failed_AutoProd: {str(e)[:80]}', 'failed', record_id)
+        )
+        conn.commit()
+        conn.close()
+        raise
+
+
+@app.route('/auto_produce/<record_id>')
+def auto_produce(record_id):
+    conn = get_db()
+    video = conn.execute(
+        "SELECT * FROM Videos WHERE record_id = ?", (record_id,)
+    ).fetchone()
+    conn.close()
+
+    if not video or not video['Script']:
+        return jsonify({'error': 'No approved script found'}), 400
+
+    # Set initial status immediately so the dashboard reacts
+    conn = get_db()
+    conn.execute(
+        "UPDATE Videos SET Status = ?, auto_prod_status = ? WHERE record_id = ?",
+        ('4_Prompts_Pending', 'pending', record_id)
+    )
+    conn.commit()
+    conn.close()
+
+    thread = threading.Thread(
+        target=_run_auto_produce,
+        args=(record_id, video['Script'])
+    )
+    thread.daemon = True
+    thread.start()
+
+    return redirect(url_for('index'))
+
+
+@app.route('/api/auto_prod_status/<record_id>')
+def api_auto_prod_status(record_id):
+    conn = get_db()
+    row = conn.execute(
+        "SELECT Status, auto_prod_status FROM Videos WHERE record_id = ?",
+        (record_id,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'status': 'unknown', 'auto_prod_status': None})
+    return jsonify({
+        'status':           row['Status'],
+        'auto_prod_status': row['auto_prod_status'],
+    })
 
 
 # ---------------------------------------------------------------------------

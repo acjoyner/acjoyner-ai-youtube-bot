@@ -158,7 +158,16 @@
                     <span class="status-pill s4">⏳ Building Video...</span>
                     <div class="progress-wrap" id="wrap-{{ v['record_id'] }}">
                         <div class="progress-bar-bg"><div class="progress-bar-fill" id="bar-{{ v['record_id'] }}" style="width:0%"></div></div>
-                        <div class="progress-label" id="label-{{ v['record_id'] }}">Starting...</div>
+                        {% set ap = v['auto_prod_status'] %}
+                        {% if ap == 'pending' %}
+                            <div class="progress-label" id="label-{{ v['record_id'] }}">🎨 Generating scene images (DALL-E 3)...</div>
+                        {% elif ap == 'images_done' %}
+                            <div class="progress-label" id="label-{{ v['record_id'] }}">🎬 Generating video clips (Kling)...</div>
+                        {% elif ap == 'clips_done' or ap == 'assembling' %}
+                            <div class="progress-label" id="label-{{ v['record_id'] }}">🎞 Assembling final video...</div>
+                        {% else %}
+                            <div class="progress-label" id="label-{{ v['record_id'] }}">Starting...</div>
+                        {% endif %}
                     </div>
                 {% elif s == '5_Prompts_Review' %}
                     <span class="status-pill s5">Prompts Ready — Review</span>
@@ -210,7 +219,12 @@
 
                     {% elif s == '3_Script_Review' %}
                         <a href="/view/{{ v['record_id'] }}/Script" class="btn btn-gray btn-sm">View Script</a>
-                        <a href="/generate_prompts/{{ v['record_id'] }}" class="btn btn-green btn-sm">Approve & Generate Prompts</a>
+                        {% if v['Niche'] == 'finance' or v['Niche'] == 'tech' %}
+                            <button class="btn btn-primary btn-sm" onclick="triggerAutoProduce('{{ v['record_id'] }}', this)">✨ Auto-Produce</button>
+                            <div class="spinner" id="spin-ap-{{ v['record_id'] }}"></div>
+                            <div class="loading-msg" id="msg-ap-{{ v['record_id'] }}">Generating images, clips &amp; audio — this takes a few minutes per scene...</div>
+                        {% endif %}
+                        <a href="/generate_prompts/{{ v['record_id'] }}" class="btn btn-green btn-sm">Approve &amp; Generate Prompts (Manual)</a>
 
                     {% elif s == '5_Prompts_Review' %}
                         <a href="/view/{{ v['record_id'] }}/Script" class="btn btn-gray btn-sm">View Script</a>
@@ -324,6 +338,34 @@
         }
         poll();
     });
+
+    function triggerAutoProduce(recordId, btn) {
+        const spinner = document.getElementById('spin-ap-' + recordId);
+        const msg     = document.getElementById('msg-ap-' + recordId);
+        spinner.style.display = 'inline-block';
+        msg.style.display     = 'block';
+        btn.disabled          = true;
+        btn.style.opacity     = '0.5';
+
+        fetch('/auto_produce/' + recordId)
+            .then(() => {
+                // Poll auto_prod_status every 3s — reload when status changes
+                const poll = setInterval(() => {
+                    fetch('/api/auto_prod_status/' + recordId)
+                        .then(r => r.json())
+                        .then(data => {
+                            if (data.status && data.status !== '3_Script_Review') {
+                                clearInterval(poll);
+                                location.reload();
+                            }
+                        })
+                        .catch(() => {});
+                }, 3000);
+                // Hard reload after 15 minutes max
+                setTimeout(() => { clearInterval(poll); location.reload(); }, 900000);
+            })
+            .catch(() => location.reload());
+    }
 
     // Auto-refresh every 10s only when no input is focused
     let refreshTimer;

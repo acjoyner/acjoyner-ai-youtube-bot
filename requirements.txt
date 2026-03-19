@@ -8,3 +8,5 @@ edge-tts
 Pillow
 requests
 proglog
+openai
+fal-client
