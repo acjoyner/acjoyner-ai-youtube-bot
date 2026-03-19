@@ -62,23 +62,35 @@ try:
         def __init__(self, progress_file: str):
             super().__init__()
             self.progress_file = progress_file
+            self._last_pct = -1
+            print(f"[FileProgressLogger] Initialized. Writing progress to: {progress_file}")
 
         def bars_callback(self, bar, attr, value, old_value=None):
             if attr == "index":
                 total = (self.bars.get(bar) or {}).get("total") or 0
                 if total > 0:
                     pct = int(value / total * 100)
-                    try:
-                        with open(self.progress_file, "w") as f:
-                            json.dump({"pct": pct, "index": value, "total": total}, f)
-                    except Exception:
-                        pass
+                    if pct != self._last_pct:
+                        self._last_pct = pct
+                        print(f"[FileProgressLogger] Render progress: {pct}% ({value}/{total})", flush=True)
+                        try:
+                            with open(self.progress_file, "w") as f:
+                                json.dump({"pct": pct, "index": value, "total": total}, f)
+                        except Exception as write_err:
+                            print(f"[FileProgressLogger] ERROR writing progress file: {write_err}", flush=True)
+
+        def callback(self, **kw):
+            # Called by older proglog versions — log for visibility
+            bars = kw.get("bars", {})
+            if bars:
+                print(f"[FileProgressLogger] callback bars={list(bars.keys())}", flush=True)
 
 except ImportError:
-    # Fallback if proglog not available — no progress tracking
+    print("[FileProgressLogger] WARNING: proglog not installed — no render progress tracking")
     class FileProgressLogger:
         def __init__(self, progress_file: str):
             self.progress_file = progress_file
+            print(f"[FileProgressLogger] Fallback (no proglog). Progress file: {progress_file}")
         def callback(self, **kw):
             pass
 
@@ -530,10 +542,15 @@ def build_workout_video(plan: dict, output_path: str, record_id: str = None, is_
     # Export
     print(f"\nExporting to {output_path}...")
     progress_file = str(tmp_dir / "progress.json")
+    print(f"Progress file path: {os.path.abspath(progress_file)}")
+    print(f"Final video duration: {final.duration:.1f}s  fps: {final.fps}  size: {final.size}")
+
     if record_id:
         logger = FileProgressLogger(progress_file)
+        print(f"Using FileProgressLogger (record_id={record_id})")
     else:
         logger = "bar"
+        print("Using default tqdm bar logger")
 
     final.write_videofile(
         output_path,

@@ -4,10 +4,25 @@ import json
 import sqlite3
 import shortuuid
 import threading
+import logging
 from flask import Flask, render_template, request, redirect, url_for, jsonify
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# ---------------------------------------------------------------------------
+# Logging — writes to console AND pipeline.log so you can tail -f it
+# ---------------------------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%H:%M:%S',
+    handlers=[
+        logging.StreamHandler(),                  # Flask terminal
+        logging.FileHandler('pipeline.log'),      # tail -f pipeline.log
+    ]
+)
+log = logging.getLogger('pipeline')
 
 app = Flask(__name__)
 DB_FILE = os.getenv('DB_FILE', 'youtube.db')
@@ -108,6 +123,7 @@ def update_status(record_id, new_status):
 
 def _run_generate_script(record_id: str, source_url: str, niche: str):
     """Background thread: fetch transcript → rewrite script → update DB."""
+    log.info(f"[{record_id[:8]}] START generate_script | niche={niche} url={source_url}")
     try:
         from tools.fetch_transcript import fetch_transcript
         from tools.rewrite_script import rewrite_script
@@ -120,8 +136,11 @@ def _run_generate_script(record_id: str, source_url: str, niche: str):
         conn.commit()
         conn.close()
 
+        log.info(f"[{record_id[:8]}] Fetching transcript...")
         transcript = fetch_transcript(source_url)
+        log.info(f"[{record_id[:8]}] Transcript fetched ({len(transcript)} chars). Rewriting...")
         script = rewrite_script(transcript, niche)
+        log.info(f"[{record_id[:8]}] Script done ({len(script)} chars). Saving to DB.")
 
         conn = get_db()
         conn.execute(
@@ -130,8 +149,10 @@ def _run_generate_script(record_id: str, source_url: str, niche: str):
         )
         conn.commit()
         conn.close()
+        log.info(f"[{record_id[:8]}] DONE generate_script → 3_Script_Review")
 
     except Exception as e:
+        log.exception(f"[{record_id[:8]}] FAILED generate_script: {e}")
         conn = get_db()
         conn.execute(
             "UPDATE Videos SET Status = ? WHERE record_id = ?",
@@ -168,6 +189,7 @@ def generate_script(record_id):
 
 def _run_generate_prompts(record_id: str, script: str, niche: str):
     """Background thread: script → production packet → update DB."""
+    log.info(f"[{record_id[:8]}] START generate_prompts | niche={niche}")
     try:
         from tools.generate_visual_prompts import generate_visual_prompts
 
@@ -179,7 +201,9 @@ def _run_generate_prompts(record_id: str, script: str, niche: str):
         conn.commit()
         conn.close()
 
+        log.info(f"[{record_id[:8]}] Calling generate_visual_prompts...")
         prompts = generate_visual_prompts(script, niche)
+        log.info(f"[{record_id[:8]}] Prompts done ({len(prompts)} chars). Saving.")
 
         conn = get_db()
         conn.execute(
@@ -188,8 +212,10 @@ def _run_generate_prompts(record_id: str, script: str, niche: str):
         )
         conn.commit()
         conn.close()
+        log.info(f"[{record_id[:8]}] DONE generate_prompts → 5_Prompts_Review")
 
     except Exception as e:
+        log.exception(f"[{record_id[:8]}] FAILED generate_prompts: {e}")
         conn = get_db()
         conn.execute(
             "UPDATE Videos SET Status = ? WHERE record_id = ?",
@@ -481,6 +507,8 @@ def add_workout():
 
 def _run_build_workout(record_id: str, plan: dict):
     """Background thread: assemble workout video → update DB."""
+    exercises = [e for s in plan.get('sections', []) for e in s.get('exercises', [])]
+    log.info(f"[{record_id[:8]}] START build_workout | {len(exercises)} exercises, is_short={plan.get('is_short')}")
     try:
         import json
         from tools.build_workout_video import build_workout_video
@@ -496,7 +524,9 @@ def _run_build_workout(record_id: str, plan: dict):
         conn.commit()
         conn.close()
 
+        log.info(f"[{record_id[:8]}] Calling build_workout_video → {output_path}")
         build_workout_video(plan, output_path, record_id=record_id, is_short=plan.get('is_short', False))
+        log.info(f"[{record_id[:8]}] build_workout_video complete.")
 
         conn = get_db()
         conn.execute(
@@ -505,8 +535,10 @@ def _run_build_workout(record_id: str, plan: dict):
         )
         conn.commit()
         conn.close()
+        log.info(f"[{record_id[:8]}] DONE build_workout → 7_Final_Review")
 
     except Exception as e:
+        log.exception(f"[{record_id[:8]}] FAILED build_workout: {e}")
         conn = get_db()
         conn.execute(
             "UPDATE Videos SET Status = ? WHERE record_id = ?",
@@ -571,10 +603,18 @@ def api_status(record_id):
 @app.route('/api/progress/<record_id>')
 def render_progress(record_id):
     import glob
-    matches = glob.glob(f".tmp/workout_{record_id}/progress.json")
+    path = f".tmp/workout_{record_id}/progress.json"
+    matches = glob.glob(path)
     if matches:
-        with open(matches[0]) as f:
-            return jsonify(json.load(f))
+        try:
+            with open(matches[0]) as f:
+                data = json.load(f)
+            log.info(f"[{record_id[:8]}] /api/progress → pct={data.get('pct')} index={data.get('index')}/{data.get('total')}")
+            return jsonify(data)
+        except Exception as e:
+            log.warning(f"[{record_id[:8]}] /api/progress failed to read {path}: {e}")
+    else:
+        log.debug(f"[{record_id[:8]}] /api/progress → no file yet at {path}")
     return jsonify({"pct": 0})
 
 
