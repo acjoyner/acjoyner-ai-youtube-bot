@@ -38,8 +38,22 @@ DB_FILE      = os.getenv("DB_FILE", "youtube.db")
 OPENAI_KEY   = os.getenv("OPENAI_API_KEY")
 FAL_KEY      = os.getenv("FAL_KEY")
 
-# fal.ai reads this from the environment
-os.environ.setdefault("FAL_KEY", FAL_KEY or "")
+# fal.ai reads FAL_KEY directly from the environment
+if FAL_KEY:
+    os.environ["FAL_KEY"] = FAL_KEY
+
+
+def _check_credentials():
+    """Raise a clear error early if required API keys are missing."""
+    missing = []
+    if not OPENAI_KEY:
+        missing.append("OPENAI_API_KEY  — get yours at https://platform.openai.com/api-keys")
+    if not FAL_KEY:
+        missing.append("FAL_KEY         — get yours at https://fal.ai (free credits on signup)")
+    if missing:
+        raise EnvironmentError(
+            "Missing required API keys in .env:\n" + "\n".join(f"  • {m}" for m in missing)
+        )
 
 # ---------------------------------------------------------------------------
 # Master Character Descriptor — prepended to every DALL-E 3 prompt.
@@ -218,6 +232,8 @@ def generate_assets(record_id: str, script: str) -> list[dict]:
 
     Returns the completed scene list.
     """
+    _check_credentials()   # fail fast with a clear message if keys missing
+
     from tools.rewrite_script import parse_scenes
 
     scenes = parse_scenes(script)
