@@ -1,0 +1,9 @@
+flask
+python-dotenv
+shortuuid
+anthropic
+youtube-transcript-api
+moviepy
+edge-tts
+Pillow
+requests

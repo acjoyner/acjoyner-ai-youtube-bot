@@ -3,72 +3,206 @@
 <head>
     <meta charset="UTF-8">
     <title>Video Pipeline</title>
+    <meta http-equiv="refresh" content="15"> <!-- auto-refresh while jobs run -->
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 2em; background: #f9f9f9; }
-        table { width: 100%; border-collapse: collapse; background: white; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
-        th { background: #f2f2f2; }
-        tr:nth-child(even) { background: #fbfbfb; }
-        a { text-decoration: none; color: #007bff; font-weight: bold; }
-        a.button { background: #007bff; color: white; padding: 5px 10px; border-radius: 4px; }
-        a.button-green { background: #28a745; color: white; }
-        a.button-red { background: #dc3545; color: white; }
-        .form-box { background: white; padding: 1em; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 2em; }
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background: #f0f2f5; color: #1a1a1a; }
+
+        .header { background: #1a1a2e; color: white; padding: 1.2em 2em; display: flex; align-items: center; gap: 1em; }
+        .header h1 { margin: 0; font-size: 1.4em; }
+        .header .channels { margin-left: auto; font-size: 0.85em; opacity: 0.7; }
+
+        .container { padding: 2em; }
+
+        /* Add idea form */
+        .form-box { background: white; padding: 1.5em; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); margin-bottom: 2em; }
+        .form-box h3 { margin: 0 0 1em; font-size: 1em; color: #555; text-transform: uppercase; letter-spacing: 0.05em; }
+        .form-row { display: flex; gap: 0.75em; flex-wrap: wrap; }
+        .form-row input, .form-row select { padding: 9px 12px; border: 1px solid #ddd; border-radius: 5px; font-size: 0.95em; }
+        .form-row input[name="idea"] { flex: 2; min-width: 200px; }
+        .form-row input[name="source_url"] { flex: 2; min-width: 200px; }
+        .form-row select { flex: 0.5; }
+        .btn { padding: 9px 18px; border: none; border-radius: 5px; font-size: 0.9em; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block; }
+        .btn-primary { background: #4f46e5; color: white; }
+        .btn-green  { background: #16a34a; color: white; }
+        .btn-blue   { background: #0284c7; color: white; }
+        .btn-gray   { background: #6b7280; color: white; }
+        .btn-red    { background: #dc2626; color: white; }
+        .btn-sm { padding: 5px 10px; font-size: 0.8em; }
+
+        /* Pipeline stages legend */
+        .legend { display: flex; gap: 0.5em; flex-wrap: wrap; margin-bottom: 1.5em; }
+        .stage { padding: 4px 10px; border-radius: 20px; font-size: 0.75em; font-weight: 600; }
+        .stage-review   { background: #fef9c3; color: #854d0e; }
+        .stage-pending  { background: #dbeafe; color: #1e40af; }
+        .stage-prod     { background: #f3e8ff; color: #6b21a8; }
+        .stage-done     { background: #dcfce7; color: #166534; }
+        .stage-fail     { background: #fee2e2; color: #991b1b; }
+
+        /* Cards */
+        .cards { display: flex; flex-direction: column; gap: 1em; }
+        .card { background: white; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); padding: 1.2em 1.5em; display: flex; align-items: flex-start; gap: 1.5em; }
+        .card-body { flex: 1; }
+        .card-title { font-weight: 700; font-size: 1em; margin-bottom: 0.3em; }
+        .card-meta { font-size: 0.8em; color: #6b7280; margin-bottom: 0.6em; }
+        .card-actions { display: flex; gap: 0.5em; flex-wrap: wrap; margin-top: 0.5em; }
+
+        .niche-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.72em; font-weight: 700; text-transform: uppercase; margin-right: 6px; }
+        .niche-finance { background: #dbeafe; color: #1e40af; }
+        .niche-fitness { background: #dcfce7; color: #166534; }
+        .niche-tech    { background: #f3e8ff; color: #6b21a8; }
+
+        .status-pill { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 0.78em; font-weight: 600; }
+
+        /* Status colors */
+        .s1 { background: #fef9c3; color: #854d0e; }   /* Idea Review */
+        .s2 { background: #dbeafe; color: #1e40af; }   /* Script Pending */
+        .s3 { background: #fef9c3; color: #854d0e; }   /* Script Review */
+        .s4 { background: #dbeafe; color: #1e40af; }   /* Prompts Pending */
+        .s5 { background: #fef9c3; color: #854d0e; }   /* Prompts Review */
+        .s6 { background: #f3e8ff; color: #6b21a8; }   /* In Production */
+        .s7 { background: #fef9c3; color: #854d0e; }   /* Final Review */
+        .s8 { background: #dcfce7; color: #166534; }   /* Published */
+        .sf { background: #fee2e2; color: #991b1b; }   /* Failed */
+
+        .empty { text-align: center; padding: 3em; color: #9ca3af; font-size: 0.95em; }
     </style>
 </head>
 <body>
 
-    <h1>🎬 Video Automation Pipeline</h1>
+<div class="header">
+    <div>🎬</div>
+    <h1>Video Pipeline</h1>
+    <div class="channels">Finance &nbsp;|&nbsp; Fitness</div>
+</div>
 
+<div class="container">
+
+    <!-- Add idea form -->
     <div class="form-box">
-        <h3>Add New Video Idea</h3>
+        <h3>New Video</h3>
         <form action="/add" method="POST">
-            <input type="text" name="idea" placeholder="Enter new idea..." style="width: 400px; padding: 8px;">
-            <button type="submit" class="button">Add Idea</button>
+            <div class="form-row">
+                <input type="text" name="idea" placeholder="Video topic / idea..." required>
+                <input type="url" name="source_url" placeholder="Source YouTube URL (optional)">
+                <select name="niche">
+                    <option value="finance">Finance</option>
+                    <option value="fitness">Fitness</option>
+                    <option value="tech">Tech / AI</option>
+                </select>
+                <button type="submit" class="btn btn-primary">Add</button>
+            </div>
         </form>
     </div>
 
-    <table>
-        <thead>
-            <tr>
-                <th>Idea</th>
-                <th>Status</th>
-                <th>Script</th>
-                <th>Video File</th>
-                <th>Action</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for video in videos %}
-            <tr>
-                <td>{{ video['Idea'] }}</td>
-                <td><strong>{{ video['Status'] }}</strong></td>
-                <td>{{ (video['Script'] or '')[:50] }}...</td>
-                <td>{{ video['Video_File_URL'] or '---' }}</td>
-                <td>
-                    {% if video['Status'] == '2_Script_Review' %}
-                        <a href="/update_status/{{ video['record_id'] }}/3_Asset_Gen_Pending" class="button button-green">
-                            Approve Script
-                        </a>
+    <!-- Workout video form -->
+    <div class="form-box">
+        <h3>New Workout Video</h3>
+        <form action="/add_workout" method="POST">
+            <div class="form-row" style="margin-bottom:0.6em;">
+                <input type="text" name="title" placeholder="Video title e.g. 30 Min Dumbbell Full Body" required style="flex:3;">
+            </div>
+            <div class="form-row" style="margin-bottom:0.6em;">
+                <input type="text" name="upper_body" placeholder="Upper body exercises (comma separated): Bicep Curls, Shoulder Press, ..." style="flex:1;">
+            </div>
+            <div class="form-row" style="margin-bottom:0.6em;">
+                <input type="text" name="lower_body" placeholder="Lower body exercises (comma separated): Squats, Lunges, ..." style="flex:1;">
+            </div>
+            <div class="form-row">
+                <label style="font-size:0.85em;color:#555;">Work (s): <input type="number" name="work_duration" value="40" style="width:60px;"></label>
+                <label style="font-size:0.85em;color:#555;">Rest (s): <input type="number" name="rest_duration" value="20" style="width:60px;"></label>
+                <label style="font-size:0.85em;color:#555;">Section Break (s): <input type="number" name="section_rest" value="60" style="width:60px;"></label>
+                <button type="submit" class="btn btn-primary">Add Workout</button>
+            </div>
+        </form>
+    </div>
 
-                    {% elif video['Status'] == '5_Final_Review' %}
-                        <a href="/update_status/{{ video['record_id'] }}/6_Upload_Pending" class="button button-green">
-                            Approve for Upload
-                        </a>
+    <!-- Cards -->
+    <div class="cards">
+        {% for v in videos %}
+        {% set s = v['Status'] %}
 
-                    {% elif video['Status'].startswith('Failed') %}
-                        <a href="/update_status/{{ video['record_id'] }}/1_Script_Pending" class="button button-red">
-                            Retry
-                        </a>
-
-                    {% else %}
-                        ---
+        <div class="card">
+            <div class="card-body">
+                <div class="card-title">
+                    <span class="niche-badge niche-{{ v['Niche'] or 'finance' }}">{{ v['Niche'] or 'finance' }}</span>
+                    {{ v['Idea'] }}
+                </div>
+                <div class="card-meta">
+                    {% if v['Source_URL'] %}
+                        Source: <a href="{{ v['Source_URL'] }}" target="_blank">{{ v['Source_URL'][:60] }}...</a>
                     {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+                </div>
 
+                <!-- Status pill -->
+                {% if s == '1_Idea_Review' %}
+                    <span class="status-pill s1">Idea Review</span>
+                {% elif s == '2_Script_Pending' %}
+                    <span class="status-pill s2">⏳ Generating Script...</span>
+                {% elif s == '3_Script_Review' %}
+                    <span class="status-pill s3">Script Ready — Review</span>
+                {% elif s == '4_Prompts_Pending' %}
+                    <span class="status-pill s4">⏳ Generating Prompts...</span>
+                {% elif s == '5_Prompts_Review' %}
+                    <span class="status-pill s5">Prompts Ready — Review</span>
+                {% elif s == '6_In_Production' %}
+                    <span class="status-pill s6">In Production</span>
+                {% elif s == '7_Final_Review' %}
+                    <span class="status-pill s7">Final Review</span>
+                {% elif s == '8_Published' %}
+                    <span class="status-pill s8">Published</span>
+                {% elif s.startswith('Failed') %}
+                    <span class="status-pill sf">{{ s }}</span>
+                {% else %}
+                    <span class="status-pill s2">{{ s }}</span>
+                {% endif %}
+
+                <!-- Actions per status -->
+                <div class="card-actions">
+
+                    {% if s == '1_Idea_Review' %}
+                        {% if v['Video_Type'] == 'workout' %}
+                            <a href="/build_workout/{{ v['record_id'] }}" class="btn btn-blue btn-sm">Build Video</a>
+                        {% elif v['Source_URL'] %}
+                            <a href="/generate_script/{{ v['record_id'] }}" class="btn btn-blue btn-sm">Generate Script</a>
+                        {% else %}
+                            <span style="font-size:0.8em;color:#6b7280;">Add a source URL to auto-generate script, or approve to write manually.</span>
+                            <a href="/update_status/{{ v['record_id'] }}/3_Script_Review" class="btn btn-gray btn-sm">Skip — Write Manually</a>
+                        {% endif %}
+
+                    {% elif s == '3_Script_Review' %}
+                        <a href="/view/{{ v['record_id'] }}/Script" class="btn btn-gray btn-sm">View Script</a>
+                        <a href="/generate_prompts/{{ v['record_id'] }}" class="btn btn-green btn-sm">Approve & Generate Prompts</a>
+
+                    {% elif s == '5_Prompts_Review' %}
+                        <a href="/view/{{ v['record_id'] }}/Script" class="btn btn-gray btn-sm">View Script</a>
+                        <a href="/view/{{ v['record_id'] }}/Visual_Prompts" class="btn btn-gray btn-sm">View Production Packet</a>
+                        <a href="/update_status/{{ v['record_id'] }}/6_In_Production" class="btn btn-green btn-sm">Approve — Start Production</a>
+
+                    {% elif s == '6_In_Production' %}
+                        <a href="/view/{{ v['record_id'] }}/Visual_Prompts" class="btn btn-gray btn-sm">View Production Packet</a>
+                        <a href="/update_status/{{ v['record_id'] }}/7_Final_Review" class="btn btn-blue btn-sm">Mark Done — Final Review</a>
+
+                    {% elif s == '7_Final_Review' %}
+                        {% if v['Video_File_URL'] %}
+                            <a href="/download/{{ v['record_id'] }}" class="btn btn-blue btn-sm">Download Video</a>
+                        {% endif %}
+                        <a href="/update_status/{{ v['record_id'] }}/8_Published" class="btn btn-green btn-sm">Mark Published</a>
+
+                    {% elif s.startswith('Failed') %}
+                        <a href="/update_status/{{ v['record_id'] }}/1_Idea_Review" class="btn btn-red btn-sm">Reset</a>
+
+                    {% endif %}
+
+                </div>
+            </div>
+        </div>
+
+        {% else %}
+        <div class="empty">No videos yet. Add your first idea above.</div>
+        {% endfor %}
+    </div>
+
+</div>
 </body>
 </html>
