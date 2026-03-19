@@ -319,13 +319,11 @@
     }
 
     // Poll progress for any building video cards
-    const PHASE_LABELS = {
+    const AP_PHASE_LABELS = {
         'pending':    '🎨 Generating scene images (DALL-E 3)...',
         'images_done':'🎬 Generating video clips (Kling)...',
         'clips_done': '🎞 Assembling final video...',
         'assembling': '🎞 Assembling final video...',
-        'done':       '✅ Done — reloading...',
-        'failed':     '❌ Failed — check status',
     };
 
     const buildingCards = document.querySelectorAll('[id^="bar-"]');
@@ -333,41 +331,40 @@
         const recordId = bar.id.replace('bar-', '');
         const label = document.getElementById('label-' + recordId);
 
-        function pollStatus() {
-            // First check if this is an auto-produce job
-            fetch('/api/auto_prod_status/' + recordId)
-                .then(r => r.json())
-                .then(data => {
-                    const ap = data.auto_prod_status;
-                    if (ap && ap !== 'done' && ap !== 'failed') {
-                        // Auto-produce: show phase label, no render %
-                        label.textContent = PHASE_LABELS[ap] || '⏳ Processing...';
-                        bar.style.width = '0%';
-                        setTimeout(pollStatus, 3000);
-                    } else if (ap === 'done' || data.status === '7_Final_Review') {
-                        location.reload();
-                    } else {
-                        // Workout build or plain pending: use render % from progress.json
-                        pollProgress();
-                    }
-                })
-                .catch(() => setTimeout(pollStatus, 5000));
-        }
-
+        // pollProgress: used for workout builds — shows render %
         function pollProgress() {
             fetch('/api/progress/' + recordId)
                 .then(r => r.json())
                 .then(data => {
                     const pct = data.pct || 0;
                     bar.style.width = pct + '%';
-                    if (pct > 0) label.textContent = pct + '% rendered';
+                    label.textContent = pct + '% rendered';
                     if (pct < 100) setTimeout(pollProgress, 2000);
                     else location.reload();
                 })
                 .catch(() => setTimeout(pollProgress, 5000));
         }
 
-        pollStatus();
+        // pollAutoProd: used for auto-produce jobs — shows phase label
+        function pollAutoProd() {
+            fetch('/api/auto_prod_status/' + recordId)
+                .then(r => r.json())
+                .then(data => {
+                    const ap = data.auto_prod_status;
+                    if (AP_PHASE_LABELS[ap]) {
+                        label.textContent = AP_PHASE_LABELS[ap];
+                        setTimeout(pollAutoProd, 3000);
+                    } else if (ap === 'done' || data.status === '7_Final_Review' || ap === 'failed') {
+                        location.reload();
+                    } else {
+                        // No auto_prod_status set — this is a workout build, switch to progress polling
+                        pollProgress();
+                    }
+                })
+                .catch(() => pollProgress()); // on any error fall back to progress %
+        }
+
+        pollAutoProd();
     });
 
     function triggerAutoProduce(recordId, btn) {
