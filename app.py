@@ -435,6 +435,16 @@ def build_workout(record_id):
     return redirect(url_for('index'))
 
 
+@app.route('/api/status/<record_id>')
+def api_status(record_id):
+    conn = get_db()
+    row = conn.execute(
+        "SELECT Status FROM Videos WHERE record_id = ?", (record_id,)
+    ).fetchone()
+    conn.close()
+    return jsonify({"status": row["Status"] if row else "unknown"})
+
+
 @app.route('/api/progress/<record_id>')
 def render_progress(record_id):
     import glob

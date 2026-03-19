@@ -53,30 +53,34 @@ FPS = 30
 
 # --- Progress logger ---
 
-class FileProgressLogger:
-    """Writes render progress to a JSON file so the dashboard can poll it."""
+try:
+    import proglog as _proglog
 
-    def __init__(self, progress_file: str):
-        self.progress_file = progress_file
-        self._last_pct = -1
+    class FileProgressLogger(_proglog.ProgressBarLogger):
+        """Proglog-compatible logger that writes render % to a JSON file."""
 
-    def callback(self, **kw):
-        bars = kw.get("bars", {})
-        for bar in bars.values():
-            total = bar.get("total") or 0
-            index = bar.get("index") or 0
-            if total > 0:
-                pct = int(index / total * 100)
-                if pct != self._last_pct:
-                    self._last_pct = pct
+        def __init__(self, progress_file: str):
+            super().__init__()
+            self.progress_file = progress_file
+
+        def bars_callback(self, bar, attr, value, old_value=None):
+            if attr == "index":
+                total = (self.bars.get(bar) or {}).get("total") or 0
+                if total > 0:
+                    pct = int(value / total * 100)
                     try:
                         with open(self.progress_file, "w") as f:
-                            json.dump({"pct": pct, "index": index, "total": total}, f)
+                            json.dump({"pct": pct, "index": value, "total": total}, f)
                     except Exception:
                         pass
 
-    def log(self, *args, **kw):
-        pass  # suppress text output, tqdm handles it
+except ImportError:
+    # Fallback if proglog not available — no progress tracking
+    class FileProgressLogger:
+        def __init__(self, progress_file: str):
+            self.progress_file = progress_file
+        def callback(self, **kw):
+            pass
 
 # --- Font helpers ---
 

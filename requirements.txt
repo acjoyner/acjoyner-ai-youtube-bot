@@ -7,3 +7,4 @@ moviepy
 edge-tts
 Pillow
 requests
+proglog

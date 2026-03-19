@@ -81,7 +81,7 @@
 <div class="header">
     <div>🎬</div>
     <h1>Video Pipeline</h1>
-    <div class="channels">Finance &nbsp;|&nbsp; Fitness</div>
+    <div class="channels">Finance &nbsp;|&nbsp; Fitness &nbsp;|&nbsp; Tech / AI</div>
 </div>
 
 <div class="container">
@@ -286,19 +286,20 @@
         // Kick off build in background
         fetch('/build_workout/' + recordId)
             .then(() => {
-                // Poll every 2s until status changes from 1_Idea_Review
+                // Poll status every 2s until it changes away from 1_Idea_Review
                 const poll = setInterval(() => {
-                    fetch('/api/progress/' + recordId)
+                    fetch('/api/status/' + recordId)
                         .then(r => r.json())
                         .then(data => {
-                            if (data.pct > 0) {
+                            if (data.status && data.status !== '1_Idea_Review') {
                                 clearInterval(poll);
                                 location.reload();
                             }
-                        });
+                        })
+                        .catch(() => {});
                 }, 2000);
-                // Reload after 30s max regardless
-                setTimeout(() => location.reload(), 30000);
+                // Reload after 60s max regardless
+                setTimeout(() => { clearInterval(poll); location.reload(); }, 60000);
             })
             .catch(() => location.reload());
     }
