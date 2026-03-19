@@ -178,10 +178,38 @@
                     {% elif s == '5_Prompts_Review' %}
                         <a href="/view/{{ v['record_id'] }}/Script" class="btn btn-gray btn-sm">View Script</a>
                         <a href="/view/{{ v['record_id'] }}/Visual_Prompts" class="btn btn-gray btn-sm">View Production Packet</a>
-                        <a href="/update_status/{{ v['record_id'] }}/6_In_Production" class="btn btn-green btn-sm">Approve — Start Production</a>
+                        {% if v['Audio_File_URL'] %}
+                            <a href="/download_audio/{{ v['record_id'] }}" class="btn btn-green btn-sm">⬇ Download Voiceover</a>
+                        {% else %}
+                            <form action="/generate_voiceover/{{ v['record_id'] }}" method="POST" style="display:inline-flex;gap:0.4em;align-items:center;">
+                                <select name="voice" style="padding:5px 8px;border:1px solid #ddd;border-radius:5px;font-size:0.8em;">
+                                    <option value="en-US-GuyNeural">Male — Warm (Guy)</option>
+                                    <option value="en-US-AndrewNeural">Male — Casual (Andrew)</option>
+                                    <option value="en-US-ChristopherNeural">Male — Authoritative (Christopher)</option>
+                                    <option value="en-US-JennyNeural">Female — Friendly (Jenny)</option>
+                                    <option value="en-US-AriaNeural">Female — Expressive (Aria)</option>
+                                </select>
+                                <button type="submit" class="btn btn-blue btn-sm">Auto Voiceover</button>
+                            </form>
+                        {% endif %}
+                        <a href="/update_status/{{ v['record_id'] }}/6_In_Production" class="btn btn-green btn-sm">Start Production</a>
 
                     {% elif s == '6_In_Production' %}
                         <a href="/view/{{ v['record_id'] }}/Visual_Prompts" class="btn btn-gray btn-sm">View Production Packet</a>
+                        {% if v['Audio_File_URL'] %}
+                            <a href="/download_audio/{{ v['record_id'] }}" class="btn btn-gray btn-sm">⬇ Download Voiceover</a>
+                        {% else %}
+                            <form action="/generate_voiceover/{{ v['record_id'] }}" method="POST" style="display:inline-flex;gap:0.4em;align-items:center;">
+                                <select name="voice" style="padding:5px 8px;border:1px solid #ddd;border-radius:5px;font-size:0.8em;">
+                                    <option value="en-US-GuyNeural">Male — Warm</option>
+                                    <option value="en-US-AndrewNeural">Male — Casual</option>
+                                    <option value="en-US-ChristopherNeural">Male — Authoritative</option>
+                                    <option value="en-US-JennyNeural">Female — Friendly</option>
+                                    <option value="en-US-AriaNeural">Female — Expressive</option>
+                                </select>
+                                <button type="submit" class="btn btn-blue btn-sm">Auto Voiceover</button>
+                            </form>
+                        {% endif %}
                         <a href="/update_status/{{ v['record_id'] }}/7_Final_Review" class="btn btn-blue btn-sm">Mark Done — Final Review</a>
 
                     {% elif s == '7_Final_Review' %}

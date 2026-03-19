@@ -221,6 +221,88 @@ def view_field(record_id, field):
 
 
 # ---------------------------------------------------------------------------
+# Voiceover generation
+# ---------------------------------------------------------------------------
+
+VOICE_OPTIONS = {
+    "male_warm":          "en-US-GuyNeural",
+    "male_casual":        "en-US-AndrewNeural",
+    "male_authoritative": "en-US-ChristopherNeural",
+    "female_friendly":    "en-US-JennyNeural",
+    "female_expressive":  "en-US-AriaNeural",
+}
+
+
+def _run_generate_voiceover(record_id: str, script: str, voice: str):
+    """Background thread: generate voiceover MP3 from script."""
+    try:
+        from tools.generate_voiceover import generate_voiceover
+
+        os.makedirs('.tmp/audio', exist_ok=True)
+        output_path = f".tmp/audio/{record_id}.mp3"
+
+        generate_voiceover(script, output_path, voice)
+
+        conn = get_db()
+        conn.execute(
+            "UPDATE Videos SET Audio_File_URL = ? WHERE record_id = ?",
+            (output_path, record_id)
+        )
+        conn.commit()
+        conn.close()
+
+    except Exception as e:
+        conn = get_db()
+        conn.execute(
+            "UPDATE Videos SET Status = ? WHERE record_id = ?",
+            (f'Failed_Audio: {str(e)[:80]}', record_id)
+        )
+        conn.commit()
+        conn.close()
+
+
+@app.route('/generate_voiceover/<record_id>', methods=['POST'])
+def generate_voiceover_route(record_id):
+    voice = request.form.get('voice', 'en-US-GuyNeural')
+    conn = get_db()
+    video = conn.execute(
+        "SELECT * FROM Videos WHERE record_id = ?", (record_id,)
+    ).fetchone()
+    conn.close()
+
+    if not video or not video['Script']:
+        return jsonify({'error': 'No script found'}), 400
+
+    thread = threading.Thread(
+        target=_run_generate_voiceover,
+        args=(record_id, video['Script'], voice)
+    )
+    thread.daemon = True
+    thread.start()
+
+    return redirect(url_for('index'))
+
+
+@app.route('/download_audio/<record_id>')
+def download_audio(record_id):
+    from flask import send_file
+    conn = get_db()
+    video = conn.execute(
+        "SELECT * FROM Videos WHERE record_id = ?", (record_id,)
+    ).fetchone()
+    conn.close()
+
+    if not video or not video['Audio_File_URL']:
+        return "No audio file found", 404
+
+    return send_file(
+        video['Audio_File_URL'],
+        as_attachment=True,
+        download_name=f"{video['Idea']}_voiceover.mp3"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Workout video pipeline
 # ---------------------------------------------------------------------------
 
