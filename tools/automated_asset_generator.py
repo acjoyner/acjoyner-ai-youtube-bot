@@ -36,9 +36,10 @@ load_dotenv()
 
 DB_FILE      = os.getenv("DB_FILE", "youtube.db")
 OPENAI_KEY   = os.getenv("OPENAI_API_KEY")
-FAL_KEY      = os.getenv("FAL_KEY")
+# Accept either FAL_KEY or FAL_API_KEY — whichever is in .env
+FAL_KEY      = os.getenv("FAL_KEY") or os.getenv("FAL_API_KEY")
 
-# fal.ai reads FAL_KEY directly from the environment
+# fal.ai client reads FAL_KEY from the environment
 if FAL_KEY:
     os.environ["FAL_KEY"] = FAL_KEY
 
@@ -49,7 +50,7 @@ def _check_credentials():
     if not OPENAI_KEY:
         missing.append("OPENAI_API_KEY  — get yours at https://platform.openai.com/api-keys")
     if not FAL_KEY:
-        missing.append("FAL_KEY         — get yours at https://fal.ai (free credits on signup)")
+        missing.append("FAL_KEY or FAL_API_KEY — get yours at https://fal.ai (free credits on signup)")
     if missing:
         raise EnvironmentError(
             "Missing required API keys in .env:\n" + "\n".join(f"  • {m}" for m in missing)
