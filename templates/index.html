@@ -66,6 +66,10 @@
 
         .empty { text-align: center; padding: 3em; color: #9ca3af; font-size: 0.95em; }
 
+        .spinner { display:none; width:16px; height:16px; border:2px solid #ddd; border-top-color:#4f46e5; border-radius:50%; animation:spin 0.7s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-msg { display:none; font-size:0.8em; color:#6b7280; margin-top:0.4em; }
+
         .progress-wrap { margin-top: 0.6em; }
         .progress-bar-bg { background: #e5e7eb; border-radius: 999px; height: 10px; overflow: hidden; }
         .progress-bar-fill { background: #4f46e5; height: 100%; border-radius: 999px; transition: width 1s ease; }
@@ -194,7 +198,9 @@
                     {% if s == '1_Idea_Review' %}
                         {% if v['Video_Type'] == 'workout' %}
                             <a href="/exercise_prompts/{{ v['record_id'] }}" class="btn btn-gray btn-sm">Get Image Prompts</a>
-                            <a href="/build_workout/{{ v['record_id'] }}" class="btn btn-blue btn-sm">Build Video</a>
+                            <a href="/build_workout/{{ v['record_id'] }}" class="btn btn-blue btn-sm" onclick="showLoading(this)">Build Video</a>
+                            <div class="spinner" id="spin-{{ v['record_id'] }}"></div>
+                            <div class="loading-msg" id="msg-{{ v['record_id'] }}">Starting build — downloading clips & generating audio...</div>
                         {% elif v['Source_URL'] %}
                             <a href="/generate_script/{{ v['record_id'] }}" class="btn btn-blue btn-sm">Generate Script</a>
                         {% else %}
@@ -268,6 +274,17 @@
 
 </div>
 <script>
+    function showLoading(btn) {
+        const card = btn.closest('.card');
+        const recordId = btn.href.split('/').pop();
+        const spinner = document.getElementById('spin-' + recordId);
+        const msg = document.getElementById('msg-' + recordId);
+        if (spinner) { spinner.style.display = 'inline-block'; }
+        if (msg) { msg.style.display = 'block'; }
+        btn.style.opacity = '0.5';
+        btn.style.pointerEvents = 'none';
+    }
+
     // Poll progress for any building video cards
     const buildingCards = document.querySelectorAll('[id^="bar-"]');
     buildingCards.forEach(bar => {

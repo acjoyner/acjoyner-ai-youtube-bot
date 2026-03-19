@@ -208,8 +208,8 @@ def make_exercise_segment(exercise: str, video_path: Path,
     base = VideoFileClip(str(video_path)).without_audio()
 
     # Loop/trim to exact duration
-    if base.duration < duration:
-        loops = int(duration / base.duration) + 1
+    if (base.duration or 0) < duration:
+        loops = int(duration / (base.duration or 1)) + 1
         base = concatenate_videoclips([base] * loops)
     base = base.subclipped(0, duration).resized((W, H))
 
@@ -240,7 +240,7 @@ def make_exercise_segment(exercise: str, video_path: Path,
     vo_path = str(tmp_dir / f"vo_{exercise.replace(' ', '_')}_start.mp3")
     make_voiceover(f"Starting {exercise}", vo_path)
     audio = AudioFileClip(vo_path) if os.path.exists(vo_path) else silence(duration)
-    pad = silence(max(0, duration - audio.duration))
+    pad = silence(max(0, duration - (audio.duration or 0)))
 
     full_audio = concatenate_audioclips([audio, pad]).subclipped(0, duration)
 
@@ -279,7 +279,7 @@ def make_rest_segment(next_exercise: str, duration: int, tmp_dir: Path) -> Image
     vo_path = str(tmp_dir / f"vo_rest_{next_exercise.replace(' ', '_')}.mp3")
     make_voiceover(f"Rest. Next up, {next_exercise}", vo_path)
     audio = AudioFileClip(vo_path) if os.path.exists(vo_path) else silence(duration)
-    pad = silence(max(0, duration - audio.duration))
+    pad = silence(max(0, duration - (audio.duration or 0)))
 
     full_audio = concatenate_audioclips([audio, pad]).subclipped(0, duration)
 
@@ -313,7 +313,7 @@ def make_section_break(section_name: str, duration: int, tmp_dir: Path) -> Compo
     vo_path = str(tmp_dir / f"vo_break_{section_name.replace(' ', '_')}.mp3")
     make_voiceover(f"Great work! Get ready for {section_name}.", vo_path)
     audio = AudioFileClip(vo_path) if os.path.exists(vo_path) else silence(duration)
-    pad = silence(max(0, duration - audio.duration))
+    pad = silence(max(0, duration - (audio.duration or 0)))
 
     full_audio = concatenate_audioclips([audio, pad]).subclipped(0, duration)
 
@@ -350,7 +350,7 @@ def make_round_break(round_num: int, total_rounds: int, duration: int, tmp_dir: 
     vo_path = str(tmp_dir / f"vo_round_{round_num}_break.mp3")
     make_voiceover(f"Round {round_num} complete. Get ready for round {round_num + 1}.", vo_path)
     audio = AudioFileClip(vo_path) if os.path.exists(vo_path) else silence(duration)
-    pad = silence(max(0, duration - audio.duration))
+    pad = silence(max(0, duration - (audio.duration or 0)))
 
     full_audio = concatenate_audioclips([audio, pad]).subclipped(0, duration)
 
@@ -402,7 +402,7 @@ def add_background_music(video, music_path: str, volume: float = 0.12):
     """Loop music under the video at low volume."""
     music = AudioFileClip(music_path)
     # Loop music to match video length
-    loops = int(video.duration / music.duration) + 2
+    loops = int((video.duration or 0) / (music.duration or 1)) + 2
 
     looped = concatenate_audioclips([music] * loops).subclipped(0, video.duration)
     looped = looped.with_volume_scaled(volume)
