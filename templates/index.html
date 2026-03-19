@@ -158,6 +158,24 @@
                     <span class="status-pill s2">{{ s }}</span>
                 {% endif %}
 
+                <!-- Jump to any step -->
+                <div class="card-actions" style="margin-top:0.75em;padding-top:0.75em;border-top:1px solid #f0f0f0;">
+                    <form action="/update_status/{{ v['record_id'] }}/{{ '{status}' }}" method="GET" onsubmit="this.action='/update_status/{{ v['record_id'] }}/' + this.querySelector('select').value; return true;" style="display:inline-flex;gap:0.4em;align-items:center;">
+                        <select name="step" style="padding:5px 8px;border:1px solid #ddd;border-radius:5px;font-size:0.78em;color:#555;">
+                            <option value="">— Move to step —</option>
+                            <option value="1_Idea_Review">1 · Idea Review</option>
+                            <option value="2_Script_Pending">2 · Script Pending</option>
+                            <option value="3_Script_Review">3 · Script Review</option>
+                            <option value="4_Prompts_Pending">4 · Prompts Pending</option>
+                            <option value="5_Prompts_Review">5 · Prompts Review</option>
+                            <option value="6_In_Production">6 · In Production</option>
+                            <option value="7_Final_Review">7 · Final Review</option>
+                            <option value="8_Published">8 · Published</option>
+                        </select>
+                        <button type="submit" class="btn btn-gray btn-sm">Go</button>
+                    </form>
+                </div>
+
                 <!-- Actions per status -->
                 <div class="card-actions">
 
