@@ -161,20 +161,18 @@ def generate_image(scene_action: str, output_path: Path) -> str:
 # fal.ai Kling image-to-video
 # ---------------------------------------------------------------------------
 
-def generate_clip(image_path: Path, output_path: Path) -> str:
+def generate_clip(image_url: str, output_path: Path) -> str:
     """
     Submit an image-to-video job to fal.ai Kling.
+
+    Passes the image URL directly — DALL-E 3 URLs are publicly accessible
+    on OpenAI's CDN so Kling can fetch them without a separate upload step.
     Returns the remote video URL (clip is also saved locally).
     """
     import fal_client
 
-    # fal.ai needs the image uploaded or accessible via URL.
-    # Upload local image to fal.ai storage first.
-    print(f"    Uploading image to fal.ai storage...")
-    with open(image_path, "rb") as f:
-        image_url = fal_client.upload(f.read(), content_type="image/png")
-
     print(f"    Submitting Kling image-to-video job...")
+    print(f"    Image URL: {image_url[:80]}...")
     result = fal_client.run(
         "fal-ai/kling-video/v1/standard/image-to-video",
         arguments={
@@ -287,7 +285,13 @@ def generate_assets(record_id: str, script: str) -> list[dict]:
             print(f"    Clip cached: {clip_path}")
             scene["clip_path"] = str(clip_path)
         else:
-            scene["clip_url"]  = generate_clip(img_path, clip_path)
+            # Need a live URL for Kling — re-generate DALL-E image if URL is
+            # missing or expired (DALL-E URLs expire after ~1 hour)
+            if not scene.get("image_url"):
+                print(f"    Image URL expired — re-generating DALL-E image...")
+                scene["image_url"] = generate_image(scene["action"], img_path)
+                _save_scene_data(record_id, scenes)
+            scene["clip_url"]  = generate_clip(scene["image_url"], clip_path)
             scene["clip_path"] = str(clip_path)
 
         # Audio
