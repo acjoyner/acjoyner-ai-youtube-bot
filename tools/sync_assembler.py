@@ -24,6 +24,7 @@ from moviepy import (
     CompositeAudioClip, AudioArrayClip,
     concatenate_videoclips, concatenate_audioclips,
 )
+from moviepy import vfx
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -82,11 +83,10 @@ def _add_music(video, music_path: str, volume: float = 0.10):
 
 def _build_scene_clip(lipsync_path: str, audio_path: str) -> object:
     """
-    Load the lipsync video clip.
+    Load the lipsync video clip and sync to audio duration.
 
-    If audio is longer than the video (can happen if lipsync truncated),
-    freeze the last frame for the remaining duration so the audio plays
-    completely without a black screen.
+    If audio is longer than the video, loop the clip seamlessly
+    rather than freezing — keeps the character animated throughout.
     """
     video = VideoFileClip(lipsync_path).resized((W, H))
     audio = AudioFileClip(audio_path) if os.path.exists(audio_path) else silence(video.duration)
@@ -95,17 +95,14 @@ def _build_scene_clip(lipsync_path: str, audio_path: str) -> object:
     aud_dur = audio.duration or vid_dur
 
     if aud_dur <= vid_dur:
-        # Audio fits — trim video to audio length
-        clip = video.subclipped(0, aud_dur).with_audio(audio)
+        clip = video.subclipped(0, aud_dur)
     else:
-        # Audio is longer — freeze last frame to fill the gap
-        last_t = max(0, vid_dur - 1 / FPS)
-        last_frame = video.get_frame(last_t)
-        freeze_dur = aud_dur - vid_dur
-        freeze = ImageClip(last_frame).with_duration(freeze_dur).with_fps(FPS)
-        clip = concatenate_videoclips([video, freeze]).with_audio(audio)
+        # Loop the clip to cover the full audio duration
+        loops = int(aud_dur / vid_dur) + 2
+        looped = concatenate_videoclips([video] * loops)
+        clip = looped.subclipped(0, aud_dur)
 
-    return clip
+    return clip.with_audio(audio)
 
 
 # ---------------------------------------------------------------------------
@@ -147,16 +144,19 @@ def assemble_finance_video(
     if missing:
         raise FileNotFoundError("Missing assets:\n" + "\n".join(missing))
 
-    # Build each scene
+    # Build each scene with crossfade transitions
+    FADE = 0.4  # seconds of crossfade between scenes
     scene_clips = []
     for i, scene in enumerate(scene_data):
         print(f"  Building scene {i + 1}/{len(scene_data)}...")
         clip = _build_scene_clip(scene["lipsync_path"], scene["audio_path"])
+        if i > 0:
+            clip = clip.with_effects([vfx.CrossFadeIn(FADE)])
         scene_clips.append(clip)
 
-    # Concatenate
+    # Concatenate with overlap so crossfades blend smoothly
     print("  Concatenating scenes...")
-    final = concatenate_videoclips(scene_clips, method="compose")
+    final = concatenate_videoclips(scene_clips, padding=-FADE, method="compose")
 
     # Background music
     music_path = _fetch_music(tmp)

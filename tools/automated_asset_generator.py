@@ -37,14 +37,14 @@ FAL_KEY         = os.getenv("FAL_API_KEY") or os.getenv("FAL_KEY")
 # ---------------------------------------------------------------------------
 # Voice & model config — swap voice ID here to change character voice
 # ---------------------------------------------------------------------------
-VOICE_ID        = "JBFqnCBsd6RMkjVDRZzb"   # Marcus — Deep/Urban
-ELEVEN_MODEL    = "eleven_multilingual_v2"   # Best for urban accent / intonation
+VOICE_ID        = "nPczCjzI2devNBz1zQrb"   # Brian — Deep, Resonant, Classy American
+ELEVEN_MODEL    = "eleven_multilingual_v2"  # Best accent consistency
 
 # ---------------------------------------------------------------------------
 # fal.ai Kling endpoints — update here if fal.ai renames them
 # ---------------------------------------------------------------------------
 KLING_I2V_MODEL      = "fal-ai/kling-video/v2.1/standard/image-to-video"
-KLING_LIPSYNC_MODEL  = "fal-ai/kling-video/v2/lipsync"
+KLING_LIPSYNC_MODEL  = "fal-ai/sync-lipsync"
 
 # ---------------------------------------------------------------------------
 # Master Character Descriptor — prepended to every DALL-E 3 prompt
@@ -176,7 +176,7 @@ def generate_kling_clip(image_path: str, output_path: Path) -> Path:
                 "slight head nod, hand movement, confident body language. "
                 "Smooth animation, character stays on screen."
             ),
-            "duration": "5",
+            "duration": "10",
             "aspect_ratio": "16:9",
             "negative_prompt": "distorted face, blurry, morphing, text, watermark",
         },
@@ -214,6 +214,8 @@ def apply_lipsync(clip_path: str, audio_path: str, output_path: Path) -> Path:
         arguments={
             "video_url": video_url,
             "audio_url": audio_url,
+            "sync_mode": "bounce",   # smoother sync than default
+            "enhance_quality": True,
         },
     )
     result = handler.get()

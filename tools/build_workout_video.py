@@ -11,6 +11,8 @@ Optional 60s section break between upper/lower body.
 Background music: royalty-free hip-hop from Free Music Archive.
 Voiceover: Microsoft edge-tts (free).
 
+Supports both landscape (1920x1080) and vertical Shorts (1080x1920) format.
+
 Usage:
   python build_workout_video.py workout.json output.mp4
 
@@ -46,8 +48,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 PEXELS_KEY = os.getenv("PIXEL_API")
-W, H = 1920, 1080       # landscape (regular)
-W_SHORT, H_SHORT = 1080, 1920  # vertical (Shorts/Reels/TikTok)
+
+# Default dimensions — overridden per-build via is_short flag
+LANDSCAPE = (1920, 1080)
+PORTRAIT  = (1080, 1920)
 FPS = 30
 
 
@@ -66,10 +70,7 @@ try:
             print(f"[FileProgressLogger] Initialized. Writing progress to: {progress_file}")
 
         def bars_callback(self, bar, attr, value, _old_value=None):
-            # Log EVERY call — helps diagnose what moviepy actually sends
             print(f"[FileProgressLogger] bars_callback → bar={bar!r} attr={attr!r} value={value!r}", flush=True)
-
-            # moviepy 2.x uses iter_bar(frame_index=array) so bar="frame_index", attr="index"
             if attr == "index":
                 bar_info = self.bars.get(bar) or {}
                 total = bar_info.get("total") or 0
@@ -93,9 +94,9 @@ except ImportError:
     class FileProgressLogger:
         def __init__(self, progress_file: str):
             self.progress_file = progress_file
-            print(f"[FileProgressLogger] Fallback (no proglog). Progress file: {progress_file}")
         def callback(self, **kw):
             pass
+
 
 # --- Font helpers ---
 
@@ -116,25 +117,54 @@ def get_font(size: int):
 
 
 def text_image(text: str, font_size: int, color: tuple, bg_color=None,
-               size=(W, H), position="center", alpha=255) -> np.ndarray:
-    """Render text onto a transparent (or solid) RGBA canvas."""
-    img = Image.new("RGBA", size, bg_color if bg_color else (0, 0, 0, 0))
+               w: int = 1920, h: int = 1080,
+               position="center", alpha=255) -> np.ndarray:
+    """Render text onto a transparent (or solid) RGBA canvas of size (w, h)."""
+    img = Image.new("RGBA", (w, h), bg_color if bg_color else (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     font = get_font(font_size)
     bbox = draw.textbbox((0, 0), text, font=font)
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
     if position == "center":
-        x, y = (size[0] - tw) // 2, (size[1] - th) // 2
+        x, y = (w - tw) // 2, (h - th) // 2
     elif position == "top":
-        x, y = (size[0] - tw) // 2, int(size[1] * 0.08)
+        x, y = (w - tw) // 2, int(h * 0.08)
     elif position == "bottom":
-        x, y = (size[0] - tw) // 2, int(size[1] * 0.82)
+        x, y = (w - tw) // 2, int(h * 0.82)
     elif isinstance(position, tuple):
         x, y = position
     else:
-        x, y = (size[0] - tw) // 2, (size[1] - th) // 2
+        x, y = (w - tw) // 2, (h - th) // 2
     draw.text((x, y), text, font=font, fill=(*color, alpha))
     return np.array(img)
+
+
+def fit_clip_to_frame(clip, w: int, h: int) -> VideoFileClip:
+    """
+    Fit a video clip into (w, h) without distortion.
+    - Landscape source → landscape target: simple resize/crop
+    - Landscape source → portrait target (Shorts): center-crop to fill vertically
+    """
+    cw, ch = clip.size
+    target_ratio = w / h
+    source_ratio = cw / ch
+
+    if abs(target_ratio - source_ratio) < 0.05:
+        # Same ratio — just resize
+        return clip.resized((w, h))
+
+    if target_ratio < 1.0 and source_ratio > 1.0:
+        # Portrait target, landscape source — crop center column
+        scale = h / ch
+        new_w = int(cw * scale)
+        new_h = h
+        scaled = clip.resized((new_w, new_h))
+        x_center = new_w // 2
+        x1 = x_center - w // 2
+        return scaled.cropped(x1=x1, y1=0, x2=x1 + w, y2=new_h)
+
+    # Default: resize to fill
+    return clip.resized((w, h))
 
 
 # --- Pexels video fetcher ---
@@ -146,24 +176,21 @@ def fetch_exercise_clip(exercise: str, dest_dir: Path) -> Path:
     """
     Return a video clip for the given exercise.
     Priority:
-      1. clips/exercises/<safe_name>.mp4  — user-provided cartoon clips
+      1. clips/exercises/<safe_name>.mp4  — user-provided clips
       2. .tmp/.../downloads/<safe_name>.mp4 — cached Pexels download
       3. Pexels API — download and cache
     """
     safe = exercise.lower().replace(" ", "_").replace("/", "_")
 
-    # 1. User-provided cartoon clip
     local = CLIPS_DIR / f"{safe}.mp4"
     if local.exists():
         print(f"  Using local clip: {local}")
         return local
 
-    # 2. Cached Pexels clip
     dest = dest_dir / f"{safe}.mp4"
     if dest.exists():
         return dest
 
-    # 3. Download from Pexels
     if not PEXELS_KEY:
         raise RuntimeError(f"No local clip found for '{exercise}' and PIXEL_API not set.")
 
@@ -200,11 +227,9 @@ def fetch_exercise_clip(exercise: str, dest_dir: Path) -> Path:
 async def _tts(text: str, path: str):
     try:
         import edge_tts
-        voice = "en-US-GuyNeural"
-        communicate = edge_tts.Communicate(text, voice)
+        communicate = edge_tts.Communicate(text, "en-US-GuyNeural")
         await communicate.save(path)
     except ImportError:
-        # Silently skip if edge-tts not installed
         pass
 
 
@@ -213,118 +238,112 @@ def make_voiceover(text: str, path: str):
 
 
 def silence(duration: float) -> AudioArrayClip:
-    """Return a silent audio clip of given duration."""
     samples = int(44100 * duration)
     arr = np.zeros((samples, 2), dtype=np.float32)
     return AudioArrayClip(arr, fps=44100)
 
 
 # --- Video segment builders ---
+# All builders accept w, h so they work correctly for both landscape and Shorts.
 
 def make_exercise_segment(exercise: str, video_path: Path,
-                          duration: int, tmp_dir: Path) -> VideoFileClip:
-    """40-second work segment with stock footage + overlays."""
+                          duration: int, tmp_dir: Path,
+                          w: int, h: int) -> VideoFileClip:
+    """Work segment: stock footage + overlays."""
     base = VideoFileClip(str(video_path)).without_audio()
 
-    # Loop/trim to exact duration
     if (base.duration or 0) < duration:
         loops = int(duration / (base.duration or 1)) + 1
         base = concatenate_videoclips([base] * loops)
-    base = base.subclipped(0, duration).resized((W, H))
+    base = base.subclipped(0, duration)
+    base = fit_clip_to_frame(base, w, h)
 
-    # Dark overlay for readability
-    dark = ColorClip((W, H), color=(0, 0, 0), duration=duration).with_opacity(0.45)
+    dark = ColorClip((w, h), color=(0, 0, 0), duration=duration).with_opacity(0.45)
 
-    # Exercise name (top center)
-    name_arr = text_image(exercise.upper(), 72, (255, 255, 255), position="top")
+    font_name  = 72  if w >= 1920 else 90   # larger font for Shorts (narrower but taller)
+    font_count = 130 if w >= 1920 else 150
+    font_warn  = 160 if w >= 1920 else 180
+
+    name_arr  = text_image(exercise.upper(), font_name, (255, 255, 255), w=w, h=h, position="top")
     name_clip = ImageClip(name_arr).with_duration(duration)
 
-    # WORK badge (top left)
-    work_arr = text_image("WORK", 40, (255, 255, 255),
-                          bg_color=(220, 50, 50, 200), size=(160, 60), position="center")
+    work_arr  = text_image("WORK", 40, (255, 255, 255),
+                           bg_color=(220, 50, 50, 200), w=160, h=60, position="center")
     work_clip = ImageClip(work_arr).with_duration(duration).with_position((40, 40))
 
-    # Per-second countdown clips
     countdown_clips = []
     for sec in range(duration, 0, -1):
         t_start = duration - sec
         is_warn = sec <= 5
         color = (255, 60, 60) if is_warn else (255, 255, 255)
-        font_size = 160 if is_warn else 130
-        arr = text_image(str(sec), font_size, color, position="bottom")
+        fs = font_warn if is_warn else font_count
+        arr  = text_image(str(sec), fs, color, w=w, h=h, position="bottom")
         clip = ImageClip(arr).with_start(t_start).with_duration(1)
         countdown_clips.append(clip)
 
-    # Voiceover: "Starting [exercise]"
     vo_path = str(tmp_dir / f"vo_{exercise.replace(' ', '_')}_start.mp3")
     make_voiceover(f"Starting {exercise}", vo_path)
     audio = AudioFileClip(vo_path) if os.path.exists(vo_path) else silence(duration)
-    pad = silence(max(0, duration - (audio.duration or 0)))
-
+    pad   = silence(max(0, duration - (audio.duration or 0)))
     full_audio = concatenate_audioclips([audio, pad]).subclipped(0, duration)
 
     composite = CompositeVideoClip([base, dark, name_clip, work_clip] + countdown_clips)
     return composite.with_audio(full_audio)
 
 
-def make_rest_segment(next_exercise: str, duration: int, tmp_dir: Path) -> ImageClip:
-    """20-second rest screen."""
+def make_rest_segment(next_exercise: str, duration: int, tmp_dir: Path,
+                      w: int, h: int) -> CompositeVideoClip:
+    """Rest screen."""
     clips = []
     for sec in range(duration, 0, -1):
         t_start = duration - sec
-        # Background
-        bg = np.zeros((H, W, 3), dtype=np.uint8)
-        bg[:] = (15, 30, 15)
-        bg_clip = ImageClip(bg).with_start(t_start).with_duration(1)
+        bg_arr = np.zeros((h, w, 3), dtype=np.uint8)
+        bg_arr[:] = (15, 30, 15)
+        bg_clip = ImageClip(bg_arr).with_start(t_start).with_duration(1)
 
-        # REST text
-        rest_arr = text_image("REST", 160, (76, 200, 76), position=(
-            (W - 400) // 2, int(H * 0.15)
-        ))
+        rest_arr  = text_image("REST", 160, (76, 200, 76), w=w, h=h,
+                               position=((w - 400) // 2, int(h * 0.15)))
         rest_clip = ImageClip(rest_arr).with_start(t_start).with_duration(1)
 
-        # Next exercise
-        next_arr = text_image(f"Next: {next_exercise.upper()}", 52, (180, 180, 180),
-                              position=((W - 900) // 2, int(H * 0.5)))
+        next_arr  = text_image(f"Next: {next_exercise.upper()}", 52, (180, 180, 180), w=w, h=h,
+                               position=((w - min(900, w - 40)) // 2, int(h * 0.5)))
         next_clip = ImageClip(next_arr).with_start(t_start).with_duration(1)
 
-        # Countdown
-        count_arr = text_image(str(sec), 100, (255, 255, 255), position="bottom")
+        count_arr  = text_image(str(sec), 100, (255, 255, 255), w=w, h=h, position="bottom")
         count_clip = ImageClip(count_arr).with_start(t_start).with_duration(1)
 
         clips.extend([bg_clip, rest_clip, next_clip, count_clip])
 
-    # Voiceover
     vo_path = str(tmp_dir / f"vo_rest_{next_exercise.replace(' ', '_')}.mp3")
     make_voiceover(f"Rest. Next up, {next_exercise}", vo_path)
     audio = AudioFileClip(vo_path) if os.path.exists(vo_path) else silence(duration)
-    pad = silence(max(0, duration - (audio.duration or 0)))
-
+    pad   = silence(max(0, duration - (audio.duration or 0)))
     full_audio = concatenate_audioclips([audio, pad]).subclipped(0, duration)
 
-    composite = CompositeVideoClip(clips, size=(W, H)).with_duration(duration)
+    composite = CompositeVideoClip(clips, size=(w, h)).with_duration(duration)
     return composite.with_audio(full_audio)
 
 
-def make_section_break(section_name: str, duration: int, tmp_dir: Path) -> CompositeVideoClip:
-    """60-second break between sections."""
+def make_section_break(section_name: str, duration: int, tmp_dir: Path,
+                       w: int, h: int) -> CompositeVideoClip:
+    """Section break between upper/lower body."""
     clips = []
     for sec in range(duration, 0, -1):
         t_start = duration - sec
-        bg = np.zeros((H, W, 3), dtype=np.uint8)
-        bg[:] = (10, 10, 30)
-        bg_clip = ImageClip(bg).with_start(t_start).with_duration(1)
+        bg_arr = np.zeros((h, w, 3), dtype=np.uint8)
+        bg_arr[:] = (10, 10, 30)
+        bg_clip = ImageClip(bg_arr).with_start(t_start).with_duration(1)
 
-        title_arr = text_image("Great Work!", 100, (255, 215, 0),
-                               position=((W - 700) // 2, int(H * 0.2)))
+        title_arr = text_image("Great Work!", 100, (255, 215, 0), w=w, h=h,
+                               position=((w - 700) // 2, int(h * 0.2)))
         title_clip = ImageClip(title_arr).with_start(t_start).with_duration(1)
 
-        next_arr = text_image(f"Starting {section_name.upper()}", 60, (255, 255, 255),
-                              position=((W - 900) // 2, int(H * 0.42)))
+        next_arr  = text_image(f"Starting {section_name.upper()}", 60, (255, 255, 255), w=w, h=h,
+                               position=((w - min(900, w - 40)) // 2, int(h * 0.42)))
         next_clip = ImageClip(next_arr).with_start(t_start).with_duration(1)
 
-        in_arr = text_image(f"in {sec} seconds", 50, (160, 160, 160),
-                            position=((W - 600) // 2, int(H * 0.56)))
+        in_arr  = text_image(f"in {sec} seconds", 50, (160, 160, 160), w=w, h=h,
+                             position=((w - 600) // 2, int(h * 0.56)))
         in_clip = ImageClip(in_arr).with_start(t_start).with_duration(1)
 
         clips.extend([bg_clip, title_clip, next_clip, in_clip])
@@ -332,36 +351,36 @@ def make_section_break(section_name: str, duration: int, tmp_dir: Path) -> Compo
     vo_path = str(tmp_dir / f"vo_break_{section_name.replace(' ', '_')}.mp3")
     make_voiceover(f"Great work! Get ready for {section_name}.", vo_path)
     audio = AudioFileClip(vo_path) if os.path.exists(vo_path) else silence(duration)
-    pad = silence(max(0, duration - (audio.duration or 0)))
-
+    pad   = silence(max(0, duration - (audio.duration or 0)))
     full_audio = concatenate_audioclips([audio, pad]).subclipped(0, duration)
 
-    composite = CompositeVideoClip(clips, size=(W, H)).with_duration(duration)
+    composite = CompositeVideoClip(clips, size=(w, h)).with_duration(duration)
     return composite.with_audio(full_audio)
 
 
-def make_round_break(round_num: int, total_rounds: int, duration: int, tmp_dir: Path) -> CompositeVideoClip:
-    """Short break between rounds within a section."""
+def make_round_break(round_num: int, total_rounds: int, duration: int, tmp_dir: Path,
+                     w: int, h: int) -> CompositeVideoClip:
+    """Break between rounds."""
     clips = []
     for sec in range(duration, 0, -1):
         t_start = duration - sec
-        bg = np.zeros((H, W, 3), dtype=np.uint8)
-        bg[:] = (20, 20, 20)
-        bg_clip = ImageClip(bg).with_start(t_start).with_duration(1)
+        bg_arr = np.zeros((h, w, 3), dtype=np.uint8)
+        bg_arr[:] = (20, 20, 20)
+        bg_clip = ImageClip(bg_arr).with_start(t_start).with_duration(1)
 
-        done_arr = text_image(f"Round {round_num} Complete!", 90, (255, 215, 0),
-                              position=((W - 800) // 2, int(H * 0.2)))
+        done_arr  = text_image(f"Round {round_num} Complete!", 90, (255, 215, 0), w=w, h=h,
+                               position=((w - 800) // 2, int(h * 0.2)))
         done_clip = ImageClip(done_arr).with_start(t_start).with_duration(1)
 
-        next_arr = text_image(f"Round {round_num + 1} of {total_rounds}", 65, (255, 255, 255),
-                              position=((W - 600) // 2, int(H * 0.42)))
+        next_arr  = text_image(f"Round {round_num + 1} of {total_rounds}", 65, (255, 255, 255), w=w, h=h,
+                               position=((w - 600) // 2, int(h * 0.42)))
         next_clip = ImageClip(next_arr).with_start(t_start).with_duration(1)
 
-        in_arr = text_image(f"starting in {sec}s", 48, (160, 160, 160),
-                            position=((W - 500) // 2, int(H * 0.56)))
+        in_arr  = text_image(f"starting in {sec}s", 48, (160, 160, 160), w=w, h=h,
+                             position=((w - 500) // 2, int(h * 0.56)))
         in_clip = ImageClip(in_arr).with_start(t_start).with_duration(1)
 
-        count_arr = text_image(str(sec), 80, (255, 255, 255), position="bottom")
+        count_arr  = text_image(str(sec), 80, (255, 255, 255), w=w, h=h, position="bottom")
         count_clip = ImageClip(count_arr).with_start(t_start).with_duration(1)
 
         clips.extend([bg_clip, done_clip, next_clip, in_clip, count_clip])
@@ -369,20 +388,19 @@ def make_round_break(round_num: int, total_rounds: int, duration: int, tmp_dir: 
     vo_path = str(tmp_dir / f"vo_round_{round_num}_break.mp3")
     make_voiceover(f"Round {round_num} complete. Get ready for round {round_num + 1}.", vo_path)
     audio = AudioFileClip(vo_path) if os.path.exists(vo_path) else silence(duration)
-    pad = silence(max(0, duration - (audio.duration or 0)))
-
+    pad   = silence(max(0, duration - (audio.duration or 0)))
     full_audio = concatenate_audioclips([audio, pad]).subclipped(0, duration)
 
-    composite = CompositeVideoClip(clips, size=(W, H)).with_duration(duration)
+    composite = CompositeVideoClip(clips, size=(w, h)).with_duration(duration)
     return composite.with_audio(full_audio)
 
 
-def make_intro(title: str, duration: int = 5) -> CompositeVideoClip:
-    """Simple 5-second intro card."""
-    bg = np.zeros((H, W, 3), dtype=np.uint8)
-    bg[:] = (10, 10, 30)
-    bg_clip = ImageClip(bg).with_duration(duration)
-    title_arr = text_image(title.upper(), 80, (255, 255, 255))
+def make_intro(title: str, duration: int = 5, w: int = 1920, h: int = 1080) -> CompositeVideoClip:
+    """Simple 5-second intro/outro card."""
+    bg_arr = np.zeros((h, w, 3), dtype=np.uint8)
+    bg_arr[:] = (10, 10, 30)
+    bg_clip    = ImageClip(bg_arr).with_duration(duration)
+    title_arr  = text_image(title.upper(), 80, (255, 255, 255), w=w, h=h)
     title_clip = ImageClip(title_arr).with_duration(duration)
     return CompositeVideoClip([bg_clip, title_clip]).with_duration(duration)
 
@@ -390,13 +408,7 @@ def make_intro(title: str, duration: int = 5) -> CompositeVideoClip:
 # --- Music ---
 
 def fetch_music(tmp_dir: Path) -> str | None:
-    """
-    Download royalty-free uptempo hip-hop from Free Music Archive (FMA).
-    These tracks are CC-licensed and safe for YouTube.
-    Returns local path or None if download fails.
-    """
     tracks = [
-        # Free Music Archive - CC0 / CC-BY hip-hop instrumentals
         "https://files.freemusicarchive.org/storage-freemusicarchive-org/music/no_curator/Broke_For_Free/Directionless_EP/Broke_For_Free_-_01_-_Night_Owl.mp3",
         "https://files.freemusicarchive.org/storage-freemusicarchive-org/music/ccCommunity/Kai_Engel/Sustains/Kai_Engel_-_09_-_Downfall.mp3",
     ]
@@ -418,14 +430,10 @@ def fetch_music(tmp_dir: Path) -> str | None:
 
 
 def add_background_music(video, music_path: str, volume: float = 0.12):
-    """Loop music under the video at low volume."""
     music = AudioFileClip(music_path)
-    # Loop music to match video length
     loops = int((video.duration or 0) / (music.duration or 1)) + 2
-
     looped = concatenate_audioclips([music] * loops).subclipped(0, video.duration or 1)
     looped = looped.with_volume_scaled(volume)
-
     if video.audio:
         mixed = CompositeAudioClip([video.audio, looped])
         return video.with_audio(mixed)
@@ -435,64 +443,49 @@ def add_background_music(video, music_path: str, volume: float = 0.12):
 # --- Main builder ---
 
 def build_workout_video(plan: dict, output_path: str, record_id: str = None, is_short: bool = False):
-    """
-    Build the full workout video from a plan dict.
-    Saves final MP4 to output_path.
-    """
-    title = plan.get("title", "Dumbbell Workout")
-    sections = plan["sections"]
-    work_dur = plan.get("work_duration", 40)
-    rest_dur = plan.get("rest_duration", 20)
-    section_rest = plan.get("section_rest", 60)
+    """Build the full workout video. is_short=True produces 1080x1920 vertical format."""
+    title         = plan.get("title", "Dumbbell Workout")
+    sections      = plan["sections"]
+    work_dur      = plan.get("work_duration", 40)
+    rest_dur      = plan.get("rest_duration", 20)
+    section_rest  = plan.get("section_rest", 60)
     global_rounds = plan.get("rounds", 1)
-    round_rest = plan.get("round_rest", 30)
+    round_rest    = plan.get("round_rest", 30)
 
-    # Set dimensions based on format
-    global W, H
-    if is_short:
-        W, H = W_SHORT, H_SHORT
-    else:
-        W, H = 1920, 1080
+    w, h = PORTRAIT if is_short else LANDSCAPE
+    print(f"Format: {'Shorts (portrait)' if is_short else 'Landscape'} — {w}x{h}")
 
-    tmp_dir = Path(".tmp") / f"workout_{record_id or Path(output_path).stem}"
-    tmp_dir.mkdir(parents=True, exist_ok=True)
+    tmp_dir   = Path(".tmp") / f"workout_{record_id or Path(output_path).stem}"
     downloads = tmp_dir / "downloads"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
     downloads.mkdir(exist_ok=True)
 
     all_clips = []
 
-    # Intro
     print("Building intro...")
-    all_clips.append(make_intro(title))
+    all_clips.append(make_intro(title, w=w, h=h))
 
     for s_idx, section in enumerate(sections):
-        section_name = section["name"]
-        exercises = section["exercises"]
-        rounds = section.get("rounds", global_rounds)
+        section_name  = section["name"]
+        exercises     = section["exercises"]
+        rounds        = section.get("rounds", global_rounds)
+        is_last_section = (s_idx == len(sections) - 1)
 
         print(f"\n--- Section: {section_name} ({rounds} round{'s' if rounds > 1 else ''}) ---")
-
-        is_last_section = (s_idx == len(sections) - 1)
 
         for round_num in range(1, rounds + 1):
             if rounds > 1:
                 print(f"  Round {round_num}/{rounds}")
-
             is_last_round = (round_num == rounds)
 
             for e_idx, exercise in enumerate(exercises):
                 print(f"    [{e_idx + 1}/{len(exercises)}] {exercise}")
-
-                # Fetch stock video (cached after first download)
                 video_path = fetch_exercise_clip(exercise, downloads)
-
-                # Work segment
-                work_clip = make_exercise_segment(exercise, video_path, work_dur, tmp_dir)
+                work_clip  = make_exercise_segment(exercise, video_path, work_dur, tmp_dir, w, h)
                 all_clips.append(work_clip)
 
-                # Determine what comes next for the rest screen
                 is_last_exercise = (e_idx == len(exercises) - 1)
-                is_very_last = is_last_section and is_last_round and is_last_exercise
+                is_very_last     = is_last_section and is_last_round and is_last_exercise
 
                 if not is_very_last:
                     if not is_last_exercise:
@@ -503,38 +496,29 @@ def build_workout_video(plan: dict, output_path: str, record_id: str = None, is_
                         next_ex = sections[s_idx + 1]["exercises"][0]
                     else:
                         next_ex = "Done!"
-                    rest_clip = make_rest_segment(next_ex, rest_dur, tmp_dir)
+                    rest_clip = make_rest_segment(next_ex, rest_dur, tmp_dir, w, h)
                     all_clips.append(rest_clip)
 
-            # Round break (between rounds within a section, not after last round)
             if not is_last_round:
                 print(f"  Round break → Round {round_num + 1}")
-                round_clip = make_round_break(round_num, rounds, round_rest, tmp_dir)
+                round_clip = make_round_break(round_num, rounds, round_rest, tmp_dir, w, h)
                 all_clips.append(round_clip)
 
-        # Section break (between sections, not after last)
         if not is_last_section:
             next_section = sections[s_idx + 1]["name"]
             print(f"  Section break → {next_section}")
-            break_clip = make_section_break(next_section, section_rest, tmp_dir)
+            break_clip = make_section_break(next_section, section_rest, tmp_dir, w, h)
             all_clips.append(break_clip)
 
-    # Final card
     print("\nBuilding outro...")
-    all_clips.append(make_intro("Great Work! Subscribe for More!"))
+    all_clips.append(make_intro("Great Work! Subscribe for More!", w=w, h=h))
 
-    # Normalise all clips to same size and fps before concatenating
     print("\nNormalising clips...")
-    normed = []
-    for clip in all_clips:
-        c = clip.resized((W, H)).with_fps(FPS)
-        normed.append(c)
+    normed = [clip.resized((w, h)).with_fps(FPS) for clip in all_clips]
 
-    # Concatenate all clips
     print("Concatenating clips...")
     final = concatenate_videoclips(normed, method="compose")
 
-    # Add background music
     music_path = fetch_music(tmp_dir)
     if music_path:
         print("Adding background music...")
@@ -542,19 +526,12 @@ def build_workout_video(plan: dict, output_path: str, record_id: str = None, is_
     else:
         print("  (No music — download failed, continuing without)")
 
-    # Export
     print(f"\nExporting to {output_path}...")
     progress_file = str(tmp_dir / "progress.json")
     print(f"Progress file path: {os.path.abspath(progress_file)}")
-    print(f"Final video duration: {final.duration:.1f}s  fps: {final.fps}  size: {final.size}")
+    print(f"Final video: {final.duration:.1f}s  fps: {final.fps}  size: {final.size}")
 
-    if record_id:
-        logger = FileProgressLogger(progress_file)
-        print(f"Using FileProgressLogger (record_id={record_id})")
-    else:
-        logger = "bar"
-        print("Using default tqdm bar logger")
-
+    logger = FileProgressLogger(progress_file) if record_id else "bar"
     final.write_videofile(
         output_path,
         fps=FPS,
@@ -562,7 +539,7 @@ def build_workout_video(plan: dict, output_path: str, record_id: str = None, is_
         audio_codec="aac",
         threads=4,
         preset="fast",
-        logger=logger
+        logger=logger,
     )
     print(f"\nDone: {output_path}")
     return output_path
@@ -570,31 +547,10 @@ def build_workout_video(plan: dict, output_path: str, record_id: str = None, is_
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: python build_workout_video.py workout.json output.mp4")
-        print("\nExample workout.json:")
-        example = {
-            "title": "30 Min Full Body Dumbbell Workout",
-            "rounds": 2,
-            "round_rest": 30,
-            "work_duration": 40,
-            "rest_duration": 20,
-            "section_rest": 60,
-            "sections": [
-                {
-                    "name": "Upper Body",
-                    "exercises": ["Bicep Curls", "Shoulder Press", "Chest Fly", "Tricep Extensions",
-                                  "Bent Over Rows", "Lateral Raises", "Arnold Press"]
-                },
-                {
-                    "name": "Lower Body",
-                    "exercises": ["Goblet Squats", "Reverse Lunges", "Romanian Deadlift",
-                                  "Glute Bridges", "Calf Raises", "Curtsy Lunges", "Hip Thrusts"]
-                }
-            ]
-        }
-        print(json.dumps(example, indent=2))
+        print("Usage: python build_workout_video.py workout.json output.mp4 [--short]")
         sys.exit(1)
 
     with open(sys.argv[1]) as f:
         plan = json.load(f)
-    build_workout_video(plan, sys.argv[2])
+    is_short = "--short" in sys.argv
+    build_workout_video(plan, sys.argv[2], is_short=is_short)
