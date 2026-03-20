@@ -6,20 +6,18 @@ Generates all visual assets for a Finance video automatically:
   1. Parses the structured scene script from the DB.
   2. Builds a DALL-E 3 image prompt from the Master Character Descriptor (MCD)
      + the scene ACTION — ensuring mascot consistency across every scene.
-  3. Sends each prompt to OpenAI DALL-E 3 → gets an image URL.
-  4. Sends each image URL to fal.ai Kling (image-to-video) → gets a 5-second
-     animated video clip URL.
-  5. Downloads every image and clip locally to:
+  3. Sends each prompt to OpenAI DALL-E 3 → downloads image locally to:
        static/assets/<record_id>/scene_<n>.png
-       static/assets/<record_id>/scene_<n>.mp4
-  6. Generates per-scene TTS audio (edge-tts) for the DIALOGUE:
+  4. Generates per-scene TTS audio (edge-tts) for the DIALOGUE:
        static/assets/<record_id>/audio_<n>.mp3
-  7. Saves the completed scene_data JSON array back to the DB.
-  8. Updates auto_prod_status at each phase so the dashboard can show progress.
+  5. Saves the completed scene_data JSON array back to the DB.
+  6. Updates auto_prod_status at each phase so the dashboard can show progress.
+
+The sync_assembler then applies a Ken Burns (slow zoom) effect to each
+still image, timed to its audio duration — no video clip generation needed.
 
 Required .env keys:
-  OPENAI_API_KEY   — OpenAI API key (for DALL-E 3)
-  FAL_KEY          — fal.ai API key  (for Kling image-to-video)
+  OPENAI_API_KEY   — OpenAI API key (for DALL-E 3, ~$0.04/image)
 """
 
 import os
@@ -28,37 +26,27 @@ import json
 import asyncio
 import sqlite3
 import requests
-import time
 from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
 
-DB_FILE      = os.getenv("DB_FILE", "youtube.db")
-OPENAI_KEY   = os.getenv("OPENAI_API_KEY")
-# Accept either FAL_KEY or FAL_API_KEY — whichever is in .env
-FAL_KEY      = os.getenv("FAL_KEY") or os.getenv("FAL_API_KEY")
-
-# fal.ai client reads FAL_KEY from the environment
-if FAL_KEY:
-    os.environ["FAL_KEY"] = FAL_KEY
+DB_FILE    = os.getenv("DB_FILE", "youtube.db")
+OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 
 
 def _check_credentials():
     """Raise a clear error early if required API keys are missing."""
-    missing = []
     if not OPENAI_KEY:
-        missing.append("OPENAI_API_KEY  — get yours at https://platform.openai.com/api-keys")
-    if not FAL_KEY:
-        missing.append("FAL_KEY or FAL_API_KEY — get yours at https://fal.ai (free credits on signup)")
-    if missing:
         raise EnvironmentError(
-            "Missing required API keys in .env:\n" + "\n".join(f"  • {m}" for m in missing)
+            "Missing OPENAI_API_KEY in .env — get yours at https://platform.openai.com/api-keys"
         )
+
 
 # ---------------------------------------------------------------------------
 # Master Character Descriptor — prepended to every DALL-E 3 prompt.
-# This is what keeps the mascot visually consistent across all scenes.
+# Keeps the mascot visually consistent across all scenes without needing
+# an expensive image-reference API.
 # ---------------------------------------------------------------------------
 
 MCD = (
@@ -67,13 +55,6 @@ MCD = (
     "He is wearing a tailored navy blue business suit, a white dress shirt, and a gold-and-navy striped tie. "
     "Art style: Flat vector colors, thick bold black outlines, simple shading, "
     "centered full-body composition, high resolution, white background."
-)
-
-# Motion prompt sent to Kling for every clip — only the character moves.
-MOTION_PROMPT = (
-    "The cartoon character subtly gestures while speaking — slight hand movement, "
-    "natural head nod. Smooth 5-second animation. Only the character moves. "
-    "Background stays static. Flat cartoon art style maintained throughout."
 )
 
 
@@ -85,22 +66,6 @@ def _get_db():
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
     return conn
-
-
-def _set_status(record_id: str, status: str, auto_prod_status: str = None):
-    conn = _get_db()
-    if auto_prod_status is not None:
-        conn.execute(
-            "UPDATE Videos SET Status = ?, auto_prod_status = ? WHERE record_id = ?",
-            (status, auto_prod_status, record_id)
-        )
-    else:
-        conn.execute(
-            "UPDATE Videos SET Status = ? WHERE record_id = ?",
-            (status, record_id)
-        )
-    conn.commit()
-    conn.close()
 
 
 def _set_auto_prod_status(record_id: str, auto_prod_status: str):
@@ -129,8 +94,8 @@ def _save_scene_data(record_id: str, scenes: list):
 
 def generate_image(scene_action: str, output_path: Path) -> str:
     """
-    Generate one image via DALL-E 3.
-    Returns the local file path.
+    Generate one scene image via DALL-E 3.
+    Saves the PNG locally and returns the remote URL.
     """
     from openai import OpenAI
     client = OpenAI(api_key=OPENAI_KEY)
@@ -146,7 +111,6 @@ def generate_image(scene_action: str, output_path: Path) -> str:
     )
     image_url = response.data[0].url
 
-    # Download and save locally
     r = requests.get(image_url, timeout=60)
     r.raise_for_status()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -158,52 +122,12 @@ def generate_image(scene_action: str, output_path: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
-# fal.ai Kling image-to-video
-# ---------------------------------------------------------------------------
-
-def generate_clip(image_url: str, output_path: Path) -> str:
-    """
-    Submit an image-to-video job to fal.ai Kling.
-
-    Passes the image URL directly — DALL-E 3 URLs are publicly accessible
-    on OpenAI's CDN so Kling can fetch them without a separate upload step.
-    Returns the remote video URL (clip is also saved locally).
-    """
-    import fal_client
-
-    print(f"    Submitting Kling image-to-video job...")
-    print(f"    Image URL: {image_url[:80]}...")
-    result = fal_client.run(
-        "fal-ai/kling-video/v1/standard/image-to-video",
-        arguments={
-            "image_url":    image_url,
-            "prompt":       MOTION_PROMPT,
-            "duration":     "5",
-            "aspect_ratio": "16:9",
-        }
-    )
-
-    video_url = result["video"]["url"]
-
-    # Download clip locally
-    r = requests.get(video_url, timeout=120)
-    r.raise_for_status()
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "wb") as f:
-        f.write(r.content)
-
-    print(f"    Clip saved: {output_path}")
-    return video_url
-
-
-# ---------------------------------------------------------------------------
 # Per-scene TTS voiceover
 # ---------------------------------------------------------------------------
 
 async def _tts(text: str, output_path: str):
     import edge_tts
-    voice = "en-US-GuyNeural"
-    communicate = edge_tts.Communicate(text, voice)
+    communicate = edge_tts.Communicate(text, "en-US-GuyNeural")
     await communicate.save(output_path)
 
 
@@ -221,17 +145,15 @@ def generate_scene_audio(dialogue: str, output_path: Path) -> Path:
 
 def generate_assets(record_id: str, script: str) -> list[dict]:
     """
-    Full asset generation pipeline for one video.
+    Asset generation pipeline — two phases:
 
-    Phases:
-      pending      → iterating through scenes
-      images_done  → all DALL-E 3 images downloaded
-      clips_done   → all Kling video clips downloaded + audio generated
-      done         → scene_data saved to DB
+      pending      → generating DALL-E 3 images
+      images_done  → generating per-scene TTS audio
+      audio_done   → ready for sync_assembler
 
     Returns the completed scene list.
     """
-    _check_credentials()   # fail fast with a clear message if keys missing
+    _check_credentials()
 
     from tools.rewrite_script import parse_scenes
 
@@ -242,7 +164,7 @@ def generate_assets(record_id: str, script: str) -> list[dict]:
     assets_dir = Path("static") / "assets" / record_id
     assets_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n[Asset Generator] {len(scenes)} scenes found for record {record_id}")
+    print(f"\n[Asset Generator] {len(scenes)} scenes for record {record_id}")
 
     # -----------------------------------------------------------------------
     # Phase 1: Generate DALL-E 3 images
@@ -253,58 +175,39 @@ def generate_assets(record_id: str, script: str) -> list[dict]:
     for scene in scenes:
         n = scene["index"]
         img_path = assets_dir / f"scene_{n}.png"
-        print(f"  Scene {n + 1}/{len(scenes)}: {scene['action'][:60]}...")
+        print(f"  Scene {n + 1}/{len(scenes)}: {scene['action'][:70]}...")
 
         if img_path.exists():
             print(f"    (cached)")
-            scene["image_url"] = None   # don't re-store remote URL after restart
         else:
-            scene["image_url"] = generate_image(scene["action"], img_path)
+            generate_image(scene["action"], img_path)
 
-        scene["image_local"] = str(img_path)
-        _save_scene_data(record_id, scenes)   # checkpoint after each image
+        scene["image_path"] = str(img_path)
+        _save_scene_data(record_id, scenes)
 
     _set_auto_prod_status(record_id, "images_done")
     print("Phase 1 complete — all images generated.")
 
     # -----------------------------------------------------------------------
-    # Phase 2: Generate Kling video clips + per-scene audio
+    # Phase 2: Generate per-scene TTS audio
     # -----------------------------------------------------------------------
-    print("\n--- Phase 2: Generating video clips (fal.ai Kling) + audio ---")
+    print("\n--- Phase 2: Generating audio (edge-tts) ---")
 
     for scene in scenes:
         n = scene["index"]
-        img_path  = assets_dir / f"scene_{n}.png"
-        clip_path = assets_dir / f"scene_{n}.mp4"
         audio_path = assets_dir / f"audio_{n}.mp3"
-
         print(f"  Scene {n + 1}/{len(scenes)}")
 
-        # Video clip
-        if clip_path.exists():
-            print(f"    Clip cached: {clip_path}")
-            scene["clip_path"] = str(clip_path)
-        else:
-            # Need a live URL for Kling — re-generate DALL-E image if URL is
-            # missing or expired (DALL-E URLs expire after ~1 hour)
-            if not scene.get("image_url"):
-                print(f"    Image URL expired — re-generating DALL-E image...")
-                scene["image_url"] = generate_image(scene["action"], img_path)
-                _save_scene_data(record_id, scenes)
-            scene["clip_url"]  = generate_clip(scene["image_url"], clip_path)
-            scene["clip_path"] = str(clip_path)
-
-        # Audio
         if audio_path.exists():
             print(f"    Audio cached: {audio_path}")
         else:
             generate_scene_audio(scene["dialogue"], audio_path)
+
         scene["audio_path"] = str(audio_path)
+        _save_scene_data(record_id, scenes)
 
-        _save_scene_data(record_id, scenes)   # checkpoint after each clip
-
-    _set_auto_prod_status(record_id, "clips_done")
-    print("Phase 2 complete — all clips and audio generated.")
+    _set_auto_prod_status(record_id, "audio_done")
+    print("Phase 2 complete — all audio generated.")
 
     return scenes
 

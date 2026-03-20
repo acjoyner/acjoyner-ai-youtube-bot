@@ -3,19 +3,17 @@ sync_assembler.py
 -----------------
 Assembles the final Finance-style YouTube video from per-scene assets.
 
-Logic per scene:
-  - Load the 5-second Kling animation clip.
-  - Load the edge-tts audio for that scene's dialogue.
-  - If audio_duration <= 5s: trim clip to audio_duration.
-  - If audio_duration >  5s: play full 5s clip, then freeze the last frame
-    for the remainder (exactly matching the CapCut "freeze last frame" technique
-    described in the reference video).
-  - Combine scene video + scene audio.
+Each scene:
+  - Loads the DALL-E 3 PNG for that scene.
+  - Applies a slow Ken Burns zoom (4% over the audio duration) so the
+    still image feels alive — identical to the "freeze last frame" technique
+    described in the reference video, but generated automatically.
+  - Layers the scene's edge-tts audio on top.
 
 Then:
-  - Concatenate all scenes end-to-end.
-  - Mix in royalty-free background music at 10% volume.
-  - Export to output_path via MoviePy (H.264 / AAC).
+  - Concatenates all scenes end-to-end.
+  - Mixes in royalty-free background music at 10% volume.
+  - Exports to output_path via MoviePy (H.264 / AAC).
 """
 
 import os
@@ -23,8 +21,9 @@ import json
 import requests
 import numpy as np
 from pathlib import Path
+from PIL import Image
 from moviepy import (
-    VideoFileClip, ImageClip, AudioFileClip,
+    VideoClip, AudioFileClip,
     CompositeAudioClip, AudioArrayClip,
     concatenate_videoclips, concatenate_audioclips,
 )
@@ -81,38 +80,48 @@ def _add_music(video, music_path: str, volume: float = 0.10):
 
 
 # ---------------------------------------------------------------------------
+# Ken Burns effect
+# ---------------------------------------------------------------------------
+
+def _make_ken_burns(image_path: str, duration: float, zoom: float = 0.04) -> VideoClip:
+    """
+    Slow zoom-in over `duration` seconds.
+
+    zoom=0.04 means the image grows 4% from start to end — subtle enough
+    to feel like motion without being distracting.
+    """
+    img = Image.open(image_path).convert("RGB").resize((W, H), Image.LANCZOS)
+    img_arr = np.array(img)
+
+    def make_frame(t: float) -> np.ndarray:
+        scale = 1.0 + zoom * (t / max(duration, 0.001))
+        new_w = int(W * scale)
+        new_h = int(H * scale)
+        scaled = Image.fromarray(img_arr).resize((new_w, new_h), Image.LANCZOS)
+        # Crop back to target size from the center
+        x1 = (new_w - W) // 2
+        y1 = (new_h - H) // 2
+        cropped = scaled.crop((x1, y1, x1 + W, y1 + H))
+        return np.array(cropped)
+
+    return VideoClip(make_frame, duration=duration).with_fps(FPS)
+
+
+# ---------------------------------------------------------------------------
 # Per-scene assembly
 # ---------------------------------------------------------------------------
 
-def _build_scene_clip(clip_path: str, audio_path: str) -> VideoFileClip:
-    """
-    Combine one 5s Kling clip with its scene audio.
-    Freeze-last-frame if the audio runs longer than the clip.
-    """
-    video = VideoFileClip(str(clip_path)).without_audio().resized((W, H)).with_fps(FPS)
-    clip_dur = video.duration or 5.0
-
+def _build_scene_clip(image_path: str, audio_path: str) -> VideoClip:
+    """Ken Burns still + scene audio."""
     if os.path.exists(audio_path):
         audio = AudioFileClip(str(audio_path))
-        audio_dur = audio.duration or clip_dur
+        duration = audio.duration or 3.0
     else:
-        audio     = silence(clip_dur)
-        audio_dur = clip_dur
+        audio    = silence(3.0)
+        duration = 3.0
 
-    if audio_dur <= clip_dur:
-        # Trim the clip down to match the short audio
-        scene_video = video.subclipped(0, audio_dur)
-        scene_audio = audio
-
-    else:
-        # Audio is longer than the 5s clip — freeze last frame for remainder
-        remainder = audio_dur - clip_dur
-        last_frame = video.get_frame(clip_dur - 0.05)
-        freeze     = ImageClip(last_frame).with_duration(remainder).with_fps(FPS)
-        scene_video = concatenate_videoclips([video, freeze], method="compose")
-        scene_audio = audio
-
-    return scene_video.with_audio(scene_audio)
+    video = _make_ken_burns(image_path, duration)
+    return video.with_audio(audio)
 
 
 # ---------------------------------------------------------------------------
@@ -122,15 +131,15 @@ def _build_scene_clip(clip_path: str, audio_path: str) -> VideoFileClip:
 def assemble_finance_video(
     scene_data: list[dict],
     output_path: str,
-    tmp_dir: Path = Path(".tmp/finance_assembly"),
+    tmp_dir: str = ".tmp/finance_assembly",
     music_volume: float = 0.10,
 ) -> str:
     """
     Assemble the full Finance video from scene_data.
 
     Args:
-        scene_data:   List of scene dicts (from automated_asset_generator).
-                      Each dict must have 'clip_path' and 'audio_path'.
+        scene_data:   List of scene dicts from automated_asset_generator.
+                      Each dict must have 'image_path' and 'audio_path'.
         output_path:  Destination MP4 path.
         tmp_dir:      Scratch directory for music download.
         music_volume: Background music level (0.0–1.0). Default 10%.
@@ -138,44 +147,44 @@ def assemble_finance_video(
     Returns:
         output_path on success.
     """
-    tmp_dir = Path(tmp_dir)
-    tmp_dir.mkdir(parents=True, exist_ok=True)
+    tmp = Path(tmp_dir)
+    tmp.mkdir(parents=True, exist_ok=True)
 
     if not scene_data:
         raise ValueError("scene_data is empty — no scenes to assemble.")
 
-    # Validate that all assets exist
+    # Validate assets
     missing = []
     for s in scene_data:
-        if not s.get("clip_path") or not Path(s["clip_path"]).exists():
-            missing.append(f"Scene {s.get('index', '?')} clip: {s.get('clip_path')}")
+        if not s.get("image_path") or not Path(s["image_path"]).exists():
+            missing.append(f"Scene {s.get('index', '?')} image: {s.get('image_path')}")
         if not s.get("audio_path") or not Path(s["audio_path"]).exists():
             missing.append(f"Scene {s.get('index', '?')} audio: {s.get('audio_path')}")
     if missing:
         raise FileNotFoundError("Missing assets:\n" + "\n".join(missing))
 
-    # Build each scene clip
+    # Build each scene
     scene_clips = []
     for i, scene in enumerate(scene_data):
-        print(f"  Assembling scene {i + 1}/{len(scene_data)}...")
-        clip = _build_scene_clip(scene["clip_path"], scene["audio_path"])
+        print(f"  Building scene {i + 1}/{len(scene_data)}...")
+        clip = _build_scene_clip(scene["image_path"], scene["audio_path"])
         scene_clips.append(clip)
 
-    # Concatenate all scenes
+    # Concatenate
     print("  Concatenating scenes...")
     final = concatenate_videoclips(scene_clips, method="compose")
 
     # Background music
-    music_path = _fetch_music(tmp_dir)
+    music_path = _fetch_music(tmp)
     if music_path:
         print("  Mixing in background music...")
         final = _add_music(final, music_path, volume=music_volume)
     else:
-        print("  (No music — continuing without)")
+        print("  (No music — download failed, continuing without)")
 
     # Export
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    print(f"  Rendering to {output_path}...")
+    print(f"  Rendering to {output_path}  ({final.duration:.1f}s)...")
     final.write_videofile(
         output_path,
         fps=FPS,
