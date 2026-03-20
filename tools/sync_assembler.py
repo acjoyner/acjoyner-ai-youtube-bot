@@ -1,14 +1,12 @@
 """
 sync_assembler.py
 -----------------
-Assembles the final Finance-style YouTube video from per-scene assets.
+Assembles the final Finance video from per-scene lipsync clips.
 
 Each scene:
-  - Loads the DALL-E 3 PNG for that scene.
-  - Applies a slow Ken Burns zoom (4% over the audio duration) so the
-    still image feels alive — identical to the "freeze last frame" technique
-    described in the reference video, but generated automatically.
-  - Layers the scene's edge-tts audio on top.
+  - Loads the lipsync MP4 (Kling-animated, lip-synced to ElevenLabs audio).
+  - If the audio is longer than the video clip, the last frame is frozen
+    to cover the remainder — ensuring audio always plays fully.
 
 Then:
   - Concatenates all scenes end-to-end.
@@ -21,9 +19,8 @@ import json
 import requests
 import numpy as np
 from pathlib import Path
-from PIL import Image
 from moviepy import (
-    VideoClip, AudioFileClip,
+    VideoFileClip, ImageClip, AudioFileClip,
     CompositeAudioClip, AudioArrayClip,
     concatenate_videoclips, concatenate_audioclips,
 )
@@ -80,48 +77,35 @@ def _add_music(video, music_path: str, volume: float = 0.10):
 
 
 # ---------------------------------------------------------------------------
-# Ken Burns effect
+# Per-scene assembly — lipsync clip + freeze-frame fallback
 # ---------------------------------------------------------------------------
 
-def _make_ken_burns(image_path: str, duration: float, zoom: float = 0.04) -> VideoClip:
+def _build_scene_clip(lipsync_path: str, audio_path: str) -> object:
     """
-    Slow zoom-in over `duration` seconds.
+    Load the lipsync video clip.
 
-    zoom=0.04 means the image grows 4% from start to end — subtle enough
-    to feel like motion without being distracting.
+    If audio is longer than the video (can happen if lipsync truncated),
+    freeze the last frame for the remaining duration so the audio plays
+    completely without a black screen.
     """
-    img = Image.open(image_path).convert("RGB").resize((W, H), Image.LANCZOS)
-    img_arr = np.array(img)
+    video = VideoFileClip(lipsync_path).resized((W, H))
+    audio = AudioFileClip(audio_path) if os.path.exists(audio_path) else silence(video.duration)
 
-    def make_frame(t: float) -> np.ndarray:
-        scale = 1.0 + zoom * (t / max(duration, 0.001))
-        new_w = int(W * scale)
-        new_h = int(H * scale)
-        scaled = Image.fromarray(img_arr).resize((new_w, new_h), Image.LANCZOS)
-        # Crop back to target size from the center
-        x1 = (new_w - W) // 2
-        y1 = (new_h - H) // 2
-        cropped = scaled.crop((x1, y1, x1 + W, y1 + H))
-        return np.array(cropped)
+    vid_dur = video.duration or 0
+    aud_dur = audio.duration or vid_dur
 
-    return VideoClip(make_frame, duration=duration).with_fps(FPS)
-
-
-# ---------------------------------------------------------------------------
-# Per-scene assembly
-# ---------------------------------------------------------------------------
-
-def _build_scene_clip(image_path: str, audio_path: str) -> VideoClip:
-    """Ken Burns still + scene audio."""
-    if os.path.exists(audio_path):
-        audio = AudioFileClip(str(audio_path))
-        duration = audio.duration or 3.0
+    if aud_dur <= vid_dur:
+        # Audio fits — trim video to audio length
+        clip = video.subclipped(0, aud_dur).with_audio(audio)
     else:
-        audio    = silence(3.0)
-        duration = 3.0
+        # Audio is longer — freeze last frame to fill the gap
+        last_t = max(0, vid_dur - 1 / FPS)
+        last_frame = video.get_frame(last_t)
+        freeze_dur = aud_dur - vid_dur
+        freeze = ImageClip(last_frame).with_duration(freeze_dur).with_fps(FPS)
+        clip = concatenate_videoclips([video, freeze]).with_audio(audio)
 
-    video = _make_ken_burns(image_path, duration)
-    return video.with_audio(audio)
+    return clip
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +123,7 @@ def assemble_finance_video(
 
     Args:
         scene_data:   List of scene dicts from automated_asset_generator.
-                      Each dict must have 'image_path' and 'audio_path'.
+                      Each dict must have 'lipsync_path' and 'audio_path'.
         output_path:  Destination MP4 path.
         tmp_dir:      Scratch directory for music download.
         music_volume: Background music level (0.0–1.0). Default 10%.
@@ -156,8 +140,8 @@ def assemble_finance_video(
     # Validate assets
     missing = []
     for s in scene_data:
-        if not s.get("image_path") or not Path(s["image_path"]).exists():
-            missing.append(f"Scene {s.get('index', '?')} image: {s.get('image_path')}")
+        if not s.get("lipsync_path") or not Path(s["lipsync_path"]).exists():
+            missing.append(f"Scene {s.get('index', '?')} lipsync: {s.get('lipsync_path')}")
         if not s.get("audio_path") or not Path(s["audio_path"]).exists():
             missing.append(f"Scene {s.get('index', '?')} audio: {s.get('audio_path')}")
     if missing:
@@ -167,7 +151,7 @@ def assemble_finance_video(
     scene_clips = []
     for i, scene in enumerate(scene_data):
         print(f"  Building scene {i + 1}/{len(scene_data)}...")
-        clip = _build_scene_clip(scene["image_path"], scene["audio_path"])
+        clip = _build_scene_clip(scene["lipsync_path"], scene["audio_path"])
         scene_clips.append(clip)
 
     # Concatenate

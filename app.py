@@ -358,8 +358,12 @@ def _run_auto_produce(record_id: str, script: str):
 
     Phases tracked in auto_prod_status:
       pending       → generating DALL-E 3 images
-      images_done   → generating Kling video clips + audio
-      clips_done    → assembling final video
+      images_done   → generating ElevenLabs audio
+      audio_done    → generating Kling animated clips (i2v)
+      clips_done    → applying Kling lipsync
+      lipsync_done  → assembling final video
+      assembling    → rendering MP4
+      done          → complete (→ 7_Final_Review)
       failed        → error (see Status column for detail)
     """
     try:

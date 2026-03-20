@@ -320,10 +320,12 @@
 
     // Poll progress for any building video cards
     const AP_PHASE_LABELS = {
-        'pending':    '🎨 Generating scene images (DALL-E 3)...',
-        'images_done':'🎙 Generating voiceover audio...',
-        'audio_done': '🎞 Assembling final video...',
-        'assembling': '🎞 Assembling final video...',
+        'pending':      '🎨 Generating scene images (DALL-E 3)...',
+        'images_done':  '🎙 Generating voiceover audio (ElevenLabs)...',
+        'audio_done':   '🎬 Animating scenes (Kling)...',
+        'clips_done':   '👄 Applying lip sync (Kling)...',
+        'lipsync_done': '🎞 Assembling final video...',
+        'assembling':   '🎞 Assembling final video...',
     };
 
     const buildingCards = document.querySelectorAll('[id^="bar-"]');
