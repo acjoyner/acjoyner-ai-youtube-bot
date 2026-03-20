@@ -57,11 +57,19 @@ Do NOT include anything outside the [SCENE N] blocks.
 """
 
 
+MAX_TRANSCRIPT_CHARS = 20_000  # ~5k tokens — keeps us well within context limits
+
+
 def rewrite_script(transcript: str, niche: str = "finance") -> str:
     """Rewrite a transcript as a structured scene-by-scene script."""
+    # Truncate very long transcripts to avoid invalid_request_error (prompt_too_long)
+    if len(transcript) > MAX_TRANSCRIPT_CHARS:
+        transcript = transcript[:MAX_TRANSCRIPT_CHARS]
+        print(f"  [rewrite_script] Transcript truncated to {MAX_TRANSCRIPT_CHARS} chars.")
+
     message = client.messages.create(
-        model="claude-opus-4-6",
-        max_tokens=3000,
+        model="claude-sonnet-4-6",
+        max_tokens=4000,
         system=SYSTEM_PROMPT,
         messages=[
             {

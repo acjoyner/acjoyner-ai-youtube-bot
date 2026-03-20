@@ -185,7 +185,7 @@
 
                 <!-- Jump to any step -->
                 <div class="card-actions" style="margin-top:0.75em;padding-top:0.75em;border-top:1px solid #f0f0f0;">
-                    <form action="/update_status/{{ v['record_id'] }}/{{ '{status}' }}" method="GET" onsubmit="this.action='/update_status/{{ v['record_id'] }}/' + this.querySelector('select').value; return true;" style="display:inline-flex;gap:0.4em;align-items:center;">
+                    <form action="/update_status/{{ v['record_id'] }}/{{ '{status}' }}" method="GET" onsubmit="var v=this.querySelector('select').value; if(!v) return false; this.action='/update_status/{{ v['record_id'] }}/' + v; return true;" style="display:inline-flex;gap:0.4em;align-items:center;">
                         <select name="step" style="padding:5px 8px;border:1px solid #ddd;border-radius:5px;font-size:0.78em;color:#555;">
                             <option value="">— Move to step —</option>
                             <option value="1_Idea_Review">1 · Idea Review</option>
